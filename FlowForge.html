@@ -620,6 +620,8 @@ body.presentation-mode #presentationPill{display:block;}
     <div class="tb-div"></div>
     <button class="tb-btn accent" id="exportBtn">Export</button>
     <button class="tb-btn" id="notesBtn" aria-label="Open notes">Notes</button>
+    <button class="tb-btn" id="saveRevisionBtn" title="Save a labeled snapshot of the current layout">📌 Revision</button>
+    <button class="tb-btn" id="historyBtn" title="View saved revisions">🕘 History</button>
     <button class="tb-btn" id="hideNotesBtn" aria-label="Hide notes" title="Hide/show notes in layout and exports">Hide Notes</button>
     <button class="tb-btn" id="hideLayoutLabelsBtn" aria-label="Hide text notes" title="Text notes are controlled by Hide/Show Notes" style="display:none">Hide Text Notes</button>
     <button class="tb-btn" id="kbdBtn" aria-label="Keyboard shortcuts" title="Keyboard shortcuts">⌨</button>
@@ -1099,6 +1101,23 @@ body.presentation-mode #presentationPill{display:block;}
   </div>
 </div>
 
+<div class="modal-overlay hidden" id="historyModal">
+  <div class="modal" style="width:560px;max-height:82vh;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title">Revision History</div>
+      <button class="modal-close" id="historyModalClose">×</button>
+    </div>
+    <div class="modal-body" style="font-size:13px;line-height:1.5;">
+      <div id="historyEmpty" style="color:var(--muted);padding:12px 4px;">No revisions saved yet. Use 📌 Revision in the topbar to capture a labeled snapshot.</div>
+      <div id="historyList" style="max-height:56vh;overflow-y:auto;"></div>
+      <div id="historyFooterMeta" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" id="historyDoneBtn">Done</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="layersModal">
   <div class="modal" style="width:480px;max-height:82vh;">
     <div class="modal-hdr">
@@ -1272,6 +1291,7 @@ const S={
   measurePreview:null, // Phase 10 — {x,y,snapFeature?} cursor preview while measuring.
   showThroughput:false, // Phase 11 — toggle for the cases/hr badge overlay.
   throughputDefaults:{speedFpm:60,caseLenIn:18,caseGapIn:6}, // Phase 11 — fallback when obj.throughput is missing.
+  revisions:[], // Phase 16 — labeled project-state snapshots {id,label,timestampMs,payload}.
 };
 
 // DOM refs
@@ -5321,7 +5341,7 @@ function buildFullCanvas(){
 // ══════════════════════════════════════════════════
 function saveProj(){
   askFileName('Save Project',defaultFileName('flowforge'),'flowforge',name=>{
-    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults});
+    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions});
     dl(new Blob([data],{type:'application/json'}),name);showToast('Project saved');
     clearAutosave();
   });
@@ -5361,7 +5381,7 @@ function loadCust(file){
 // HISTORY (UNDO/REDO)
 // ══════════════════════════════════════════════════
 function pushHistory(){
-  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults});
+  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions});
   S.history=S.history.slice(0,S.historyIdx+1);
   S.history.push(snap);S.historyIdx=S.history.length-1;
   if(S.history.length>80){S.history.shift();S.historyIdx--;}
@@ -5584,6 +5604,7 @@ function parseProjectPayload(raw){
     dimensions:Array.isArray(d.dimensions)?d.dimensions.filter(x=>isPlainObject(x)&&isPlainObject(x.p1)&&isPlainObject(x.p2)):[],
     showThroughput:!!d.showThroughput,
     throughputDefaults:isPlainObject(d.throughputDefaults)?{speedFpm:Number(d.throughputDefaults.speedFpm)||60,caseLenIn:Number(d.throughputDefaults.caseLenIn)||18,caseGapIn:Number(d.throughputDefaults.caseGapIn)||6}:{speedFpm:60,caseLenIn:18,caseGapIn:6},
+    revisions:Array.isArray(d.revisions)?d.revisions.filter(r=>isPlainObject(r)&&isPlainObject(r.payload)&&typeof r.id==='string'):[],
   };
 }
 function applyLoadedProjectData(data){
@@ -5598,6 +5619,7 @@ function applyLoadedProjectData(data){
   S.measurePreview=null;
   if(data.showThroughput!=null)S.showThroughput=!!data.showThroughput;
   if(data.throughputDefaults)S.throughputDefaults={...S.throughputDefaults,...data.throughputDefaults};
+  S.revisions=Array.isArray(data.revisions)?data.revisions:[];
   S.notesHidden=!!data.notesHidden||!!data.labelsHidden;
   S.labelsHidden=S.notesHidden;
   S.conveyorLabelsHidden=data.conveyorLabelsHidden==null?true:!!data.conveyorLabelsHidden;
@@ -6075,6 +6097,130 @@ function drawDimensions(){
   }
 }
 
+// ── REVISION HISTORY (Phase 16) ───────────────────────────────────────
+// Labeled snapshots of the full project state. Each revision is a
+// deep-cloned payload in the same shape as a .flowforge file, stored
+// inside the project itself so revisions survive Save → Open. Restore
+// auto-captures the current state first so the action is undoable.
+function captureProjectPayload(){
+  return{
+    proj:JSON.parse(JSON.stringify(S.proj)),
+    objects:JSON.parse(JSON.stringify(S.objects)),
+    customs:JSON.parse(JSON.stringify(S.customs)),
+    libTagPrefs:JSON.parse(JSON.stringify(S.libTagPrefs||{})),
+    notes:JSON.parse(JSON.stringify(S.notes)),
+    notesHidden:!!S.notesHidden,
+    labelsHidden:!!S.labelsHidden,
+    conveyorLabelsHidden:!!S.conveyorLabelsHidden,
+    tagsHidden:!!S.tagsHidden,
+    dimensions:JSON.parse(JSON.stringify(S.dimensions||[])),
+    showThroughput:!!S.showThroughput,
+    throughputDefaults:{...S.throughputDefaults},
+  };
+}
+function saveRevision(label){
+  const cleanLabel=(label||'').trim()||'Revision '+(S.revisions.length+1);
+  const rev={id:uid('rev'),label:cleanLabel,timestampMs:Date.now(),payload:captureProjectPayload()};
+  S.revisions.push(rev);
+  pushHistory();
+  showToast('Saved revision: '+cleanLabel);
+  renderHistoryList();
+  return rev;
+}
+function promptSaveRevision(){
+  const label=prompt('Label for this revision (e.g. "Rev A — initial walkthrough"):','Rev '+String.fromCharCode(65+S.revisions.length));
+  if(label===null)return;
+  saveRevision(label);
+}
+function restoreRevision(id){
+  const rev=S.revisions.find(r=>r.id===id);if(!rev)return false;
+  if(!confirm('Restore "'+rev.label+'"?\n\nThe current layout will be saved as an auto-revision so this is undoable.'))return false;
+  // Auto-capture current state before applying.
+  const autoLabel='Before restoring "'+rev.label+'"';
+  S.revisions.push({id:uid('rev'),label:autoLabel,timestampMs:Date.now(),payload:captureProjectPayload(),auto:true});
+  // Apply the snapshot, then put the revisions array back (applyLoadedProjectData reads from data only).
+  const snapshotRevisions=[...S.revisions];
+  const payload={...rev.payload,
+    proj:rev.payload.proj,
+    customs:rev.payload.customs||[],
+    libTagPrefs:rev.payload.libTagPrefs||{},
+  };
+  applyLoadedProjectData(payload);
+  S.revisions=snapshotRevisions;
+  showToast('Restored: '+rev.label);
+  renderHistoryList();
+  return true;
+}
+function deleteRevision(id){
+  const rev=S.revisions.find(r=>r.id===id);if(!rev)return;
+  if(!confirm('Delete revision "'+rev.label+'"? This cannot be undone.'))return;
+  S.revisions=S.revisions.filter(r=>r.id!==id);
+  pushHistory();
+  renderHistoryList();
+}
+function renameRevision(id){
+  const rev=S.revisions.find(r=>r.id===id);if(!rev)return;
+  const next=prompt('Rename revision:',rev.label);
+  if(next===null||next.trim()===rev.label)return;
+  rev.label=next.trim()||rev.label;
+  pushHistory();
+  renderHistoryList();
+}
+function approximateRevisionSize(rev){
+  try{return new Blob([JSON.stringify(rev.payload)]).size;}catch(e){return 0;}
+}
+function formatBytes(n){
+  if(n<1024)return n+' B';
+  if(n<1024*1024)return (n/1024).toFixed(1)+' KB';
+  return (n/1024/1024).toFixed(2)+' MB';
+}
+function renderHistoryList(){
+  const list=document.getElementById('historyList');if(!list)return;
+  const empty=document.getElementById('historyEmpty');
+  const footer=document.getElementById('historyFooterMeta');
+  if(!S.revisions.length){
+    list.innerHTML='';
+    if(empty)empty.style.display='block';
+    if(footer)footer.textContent='';
+    return;
+  }
+  if(empty)empty.style.display='none';
+  const rows=[...S.revisions].reverse(); // newest first
+  list.innerHTML=rows.map(r=>{
+    const when=new Date(r.timestampMs).toLocaleString();
+    const objCount=Array.isArray(r.payload?.objects)?r.payload.objects.length:'?';
+    const noteCount=Array.isArray(r.payload?.notes)?r.payload.notes.length:'?';
+    return`<div data-id="${r.id}" style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:#fff;">
+      <div>
+        <div style="font-weight:700;color:var(--text);">${escapeHtml(r.label)}${r.auto?' <span style="color:var(--muted);font-weight:400;font-size:11px;">(auto)</span>':''}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">${escapeHtml(when)} · ${objCount} objects · ${noteCount} notes · ${formatBytes(approximateRevisionSize(r))}</div>
+      </div>
+      <div style="display:flex;gap:5px;">
+        <button class="btn-primary rev-restore" style="padding:4px 9px;font-size:11px;">Restore</button>
+        <button class="rev-rename" style="padding:4px 9px;font-size:11px;border:1px solid var(--border);background:#fff;cursor:pointer;border-radius:5px;">Rename</button>
+        <button class="rev-del" style="padding:4px 9px;font-size:11px;border:1px solid #e8b0ae;background:#fff3f2;color:var(--danger);cursor:pointer;border-radius:5px;">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('[data-id]').forEach(row=>{
+    const id=row.dataset.id;
+    row.querySelector('.rev-restore').addEventListener('click',()=>restoreRevision(id));
+    row.querySelector('.rev-rename').addEventListener('click',()=>renameRevision(id));
+    row.querySelector('.rev-del').addEventListener('click',()=>deleteRevision(id));
+  });
+  if(footer){
+    const total=S.revisions.reduce((s,r)=>s+approximateRevisionSize(r),0);
+    footer.textContent=S.revisions.length+' revision'+(S.revisions.length===1?'':'s')+' · ≈'+formatBytes(total)+' total. Revisions add to file size — use sparingly.';
+  }
+}
+function openHistoryModal(){
+  document.getElementById('historyModal').classList.remove('hidden');
+  renderHistoryList();
+}
+function closeHistoryModal(){
+  document.getElementById('historyModal').classList.add('hidden');
+}
+
 // ── PRESENTATION MODE (Phase 6) ───────────────────────────────────────
 function togglePresentationMode(force){
   const want=typeof force==='boolean'?force:!S.presentationMode;
@@ -6111,7 +6257,7 @@ function loadDemoLayout(key){
   if(!payload){showToast('Demo unavailable');return;}
   // Snapshot pre-load state in the same shape pushHistory writes so undo
   // can revert across the demo load (the funnel itself wipes history).
-  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults}):null;
+  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions}):null;
   applyLoadedProjectData(payload);
   if(prevSnap){
     S.history.unshift(prevSnap);
@@ -6700,6 +6846,11 @@ function bindAll(){
   document.getElementById('layersDoneBtn').addEventListener('click',closeLayersModal);
   // Phase 10 — Measure tool wiring
   document.getElementById('measureBtn').addEventListener('click',()=>toggleMeasureMode());
+  // Phase 16 — Revision history wiring
+  document.getElementById('saveRevisionBtn').addEventListener('click',promptSaveRevision);
+  document.getElementById('historyBtn').addEventListener('click',openHistoryModal);
+  document.getElementById('historyModalClose').addEventListener('click',closeHistoryModal);
+  document.getElementById('historyDoneBtn').addEventListener('click',closeHistoryModal);
   // Phase 11 — Throughput wiring (toggle + defaults + per-object overrides + collapsible section)
   document.getElementById('showThroughputBtn').addEventListener('click',()=>toggleShowThroughput());
   const tpHook=(inputId,key)=>{
@@ -6745,6 +6896,7 @@ function bindAll(){
     S.objects=[];S.selId=null;S.selIds.clear();S.tagMove=null;S.tagAnchorMove=null;S.history=[];S.historyIdx=-1;
     S.notes=[];S.notesHidden=false;S.labelsHidden=false;S.conveyorLabelsHidden=true;S.tagsHidden=false;S.selNoteId=null;closeNotePopover();
     S.dimensions=[];S.selDimId=null;S.measureMode=null;S.measurePreview=null;
+    S.revisions=[];
     S.proj={name:'FlowForge Project',quote:'',date:new Date().toISOString().slice(0,10),notes:''};
     syncProjFields();render();renderNotes();syncMarkupToggleButtons();syncOptionsMenuState();pushHistory();clearAutosave();
   });
