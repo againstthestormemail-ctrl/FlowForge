@@ -749,6 +749,8 @@ body.presentation-mode #presentationPill{display:block;}
       <div class="sec-title">Project</div>
       <label class="prop-row"><span class="prop-label">Project Name</span><input id="pName"/></label>
       <label class="prop-row"><span class="prop-label">Quote / Job #</span><input id="pQuote"/></label>
+      <label class="prop-row"><span class="prop-label">Customer</span><input id="pCustomer" placeholder="(optional)"/></label>
+      <label class="prop-row"><span class="prop-label">Prepared by</span><input id="pPreparedBy" placeholder="(optional)"/></label>
       <label class="prop-row"><span class="prop-label">Date</span><input id="pDate"/></label>
       <label class="prop-row"><span class="prop-label">Notes</span><textarea id="pNotes" rows="2"></textarea></label>
       <div id="objProps" class="hidden">
@@ -1027,6 +1029,10 @@ body.presentation-mode #presentationPill{display:block;}
       <div><strong>Area</strong><br>
         <label style="margin-right:14px;"><input type="radio" name="expArea" value="cropped" checked> Cropped (layout)</label>
         <label><input type="radio" name="expArea" value="full"> Full workspace</label>
+      </div>
+      <div id="exportPdfOptions" style="margin-top:10px;display:none;">
+        <strong>PDF Options</strong><br>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:4px;"><input type="checkbox" id="expIncludeCover" checked> Include cover page (project summary, stats, notes)</label>
       </div>
     </div>
     <div class="modal-footer">
@@ -3094,6 +3100,8 @@ function syncProjFields(){
   document.getElementById('pQuote').value=S.proj.quote||'';
   document.getElementById('pDate').value=S.proj.date;
   document.getElementById('pNotes').value=S.proj.notes||'';
+  const cEl=document.getElementById('pCustomer');if(cEl)cEl.value=S.proj.customer||'';
+  const pbEl=document.getElementById('pPreparedBy');if(pbEl)pbEl.value=S.proj.preparedBy||'';
   document.getElementById('tbProj').textContent=S.proj.name||'';
   document.getElementById('tbQuote').textContent=S.proj.quote||'';
   document.getElementById('tbDate').textContent=S.proj.date||'';
@@ -4906,68 +4914,209 @@ function expPng(){
   });
 }
 function buildPdfBlobFromCanvas(canvas){
-  if(!canvas||canvas.width<10||canvas.height<10)throw new Error('Invalid export canvas size');
-  const jpegDataUrl=canvas.toDataURL('image/jpeg',0.92);
-  const base64=jpegDataUrl.split(',')[1];
-  const binary=atob(base64);
-  const imgBytes=new Uint8Array(binary.length);
-  for(let i=0;i<binary.length;i++)imgBytes[i]=binary.charCodeAt(i);
-
-  const pageW=792; // 11in * 72
-  const pageH=612; // 8.5in * 72
-  const margin=18;
-  const availW=pageW-margin*2;
-  const availH=pageH-margin*2;
-  const scale=Math.min(availW/canvas.width,availH/canvas.height);
-  const drawW=Math.round(canvas.width*scale*1000)/1000;
-  const drawH=Math.round(canvas.height*scale*1000)/1000;
-  const drawX=Math.round((pageW-drawW)/2*1000)/1000;
-  const drawY=Math.round((pageH-drawH)/2*1000)/1000;
-
+  return buildPdfBlobFromCanvases([canvas]);
+}
+function buildPdfBlobFromCanvases(canvases){
+  // Multi-page PDF builder — each canvas becomes one page, fit-to-box
+  // with margin preserved. Used by Phase 12 cover page (cover, layout)
+  // and Phase 14 print tiling (key plan + N tiles).
+  if(!Array.isArray(canvases)||!canvases.length)throw new Error('No canvases for PDF');
+  for(const c of canvases){
+    if(!c||c.width<10||c.height<10)throw new Error('Invalid export canvas size');
+  }
+  const pageW=792,pageH=612,margin=18;
+  const availW=pageW-margin*2,availH=pageH-margin*2;
   const enc=new TextEncoder();
   const parts=[];
-  const offsets=[]; let pos=0;
+  const offsets=[];let pos=0;
   const pushPart=part=>{
     const chunk=typeof part==='string'?enc.encode(part):part;
-    parts.push(chunk); pos+=chunk.length;
+    parts.push(chunk);pos+=chunk.length;
   };
-
   pushPart('%PDF-1.4\n%ÿÿÿÿ\n');
-  const addObj=(id,body)=>{
-    offsets[id]=pos;
-    pushPart(`${id} 0 obj\n`);
-    pushPart(body);
-    pushPart('\nendobj\n');
-  };
-  const startStreamObj=(id,dict)=>{
-    offsets[id]=pos;
-    pushPart(`${id} 0 obj\n`);
-    pushPart(dict);
-    pushPart('\nstream\n');
-  };
+  const addObj=(id,body)=>{offsets[id]=pos;pushPart(`${id} 0 obj\n`);pushPart(body);pushPart('\nendobj\n');};
+  const startStreamObj=(id,dict)=>{offsets[id]=pos;pushPart(`${id} 0 obj\n`);pushPart(dict);pushPart('\nstream\n');};
   const endStreamObj=()=>pushPart('\nendstream\nendobj\n');
-
+  // Object layout:
+  // 1 = Catalog, 2 = Pages root, then per-page (page_obj, image_obj, content_obj).
+  const pageCount=canvases.length;
+  // Object ids: 1 catalog, 2 pages, then for page i: 3+i*3 = page, 4+i*3 = image, 5+i*3 = content (i starts at 0)
+  const pageIds=[];for(let i=0;i<pageCount;i++)pageIds.push(3+i*3);
   addObj(1,'<< /Type /Catalog /Pages 2 0 R >>');
-  addObj(2,'<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-  addObj(3,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
-
-  startStreamObj(4,`<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imgBytes.length} >>`);
-  pushPart(imgBytes);
-  endStreamObj();
-
-  const content=`q\n${drawW} 0 0 ${drawH} ${drawX} ${drawY} cm\n/Im0 Do\nQ`;
-  const contentBytes=enc.encode(content);
-  startStreamObj(5,`<< /Length ${contentBytes.length} >>`);
-  pushPart(contentBytes);
-  endStreamObj();
-
+  addObj(2,`<< /Type /Pages /Kids [${pageIds.map(id=>`${id} 0 R`).join(' ')}] /Count ${pageCount} >>`);
+  for(let i=0;i<pageCount;i++){
+    const canvas=canvases[i];
+    const jpegDataUrl=canvas.toDataURL('image/jpeg',0.92);
+    const base64=jpegDataUrl.split(',')[1];
+    const binary=atob(base64);
+    const imgBytes=new Uint8Array(binary.length);
+    for(let j=0;j<binary.length;j++)imgBytes[j]=binary.charCodeAt(j);
+    const scale=Math.min(availW/canvas.width,availH/canvas.height);
+    const drawW=Math.round(canvas.width*scale*1000)/1000;
+    const drawH=Math.round(canvas.height*scale*1000)/1000;
+    const drawX=Math.round((pageW-drawW)/2*1000)/1000;
+    const drawY=Math.round((pageH-drawH)/2*1000)/1000;
+    const pageId=3+i*3,imgId=4+i*3,contentId=5+i*3;
+    addObj(pageId,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Resources << /XObject << /Im0 ${imgId} 0 R >> >> /Contents ${contentId} 0 R >>`);
+    startStreamObj(imgId,`<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imgBytes.length} >>`);
+    pushPart(imgBytes);
+    endStreamObj();
+    const content=`q\n${drawW} 0 0 ${drawH} ${drawX} ${drawY} cm\n/Im0 Do\nQ`;
+    const contentBytes=enc.encode(content);
+    startStreamObj(contentId,`<< /Length ${contentBytes.length} >>`);
+    pushPart(contentBytes);
+    endStreamObj();
+  }
   const xrefPos=pos;
-  const count=6;
-  pushPart(`xref\n0 ${count}\n`);
+  const objCount=2+pageCount*3+1;
+  pushPart(`xref\n0 ${objCount}\n`);
   pushPart('0000000000 65535 f \n');
-  for(let i=1;i<count;i++)pushPart(`${String(offsets[i]||0).padStart(10,'0')} 00000 n \n`);
-  pushPart(`trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`);
+  for(let i=1;i<objCount;i++)pushPart(`${String(offsets[i]||0).padStart(10,'0')} 00000 n \n`);
+  pushPart(`trailer\n<< /Size ${objCount} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`);
   return new Blob(parts,{type:'application/pdf'});
+}
+
+// ── PDF COVER PAGE (Phase 12) ─────────────────────────────────────────
+function computeProjectStats(){
+  const objs=S.objects.filter(o=>o.type==='conveyor');
+  const conveyors=objs.filter(o=>!o.isXfer&&!o.isTurntable&&o.family!=='tcar-rail'&&o.family!=='tcar-car');
+  const totalLinFt=conveyors.reduce((sum,o)=>{
+    if(o.isCurve){
+      // Curve arc length ≈ avg radius × angle (in radians)
+      const r=((o.iR||0)+(o.oR||0))/2;
+      const a=(o.cAng||90)*Math.PI/180;
+      return sum+(r*a)/12;
+    }
+    return sum+(o.length||0)/12;
+  },0);
+  const vendorOmni=conveyors.filter(o=>o.vendor!=='nor').length;
+  const vendorNor=conveyors.filter(o=>o.vendor==='nor').length;
+  const tt=objs.filter(o=>o.isTurntable).length;
+  const xf=objs.filter(o=>o.isXfer).length;
+  const tcars=objs.filter(o=>o.family==='tcar-car').length;
+  return{conveyorCount:conveyors.length,totalLinFt,vendorOmni,vendorNor,turntables:tt,transfers:xf,tcars};
+}
+function buildCoverCanvas(layoutCanvas){
+  // Match the layout canvas dimensions so PDF page layout is consistent.
+  const W=layoutCanvas?.width||1700;
+  const H=layoutCanvas?.height||1100;
+  const c=document.createElement('canvas');
+  c.width=W;c.height=H;
+  const ctx=c.getContext('2d');
+  // Cream background
+  ctx.fillStyle='#f5efde';
+  ctx.fillRect(0,0,W,H);
+  // Charcoal top banner with FlowForge wordmark
+  const bannerH=Math.round(H*0.14);
+  ctx.fillStyle='#2a2f36';
+  ctx.fillRect(0,0,W,bannerH);
+  // Wordmark split: Flow (cream) + Forge (orange)
+  const wmFs=Math.round(bannerH*0.42);
+  ctx.font=`800 ${wmFs}px Arial`;
+  ctx.textBaseline='middle';
+  ctx.fillStyle='#f5efde';
+  ctx.fillText('Flow',60,bannerH/2);
+  const flowW=ctx.measureText('Flow').width;
+  ctx.fillStyle='#ff6a18';
+  ctx.fillText('Forge',60+flowW,bannerH/2);
+  // Sub-tag
+  ctx.font=`600 ${Math.round(bannerH*0.18)}px Arial`;
+  ctx.fillStyle='rgba(245,239,222,0.7)';
+  ctx.fillText('Conveyor Layout — Project Summary',60,bannerH/2+wmFs*0.55);
+  // Hot-orange accent stripe under banner
+  ctx.fillStyle='#ff6a18';
+  ctx.fillRect(0,bannerH,W,4);
+  // Project name (large, centered)
+  const nameY=bannerH+Math.round(H*0.10);
+  ctx.fillStyle='#2a2f36';
+  ctx.font=`800 ${Math.round(H*0.06)}px Arial`;
+  ctx.textAlign='center';
+  ctx.textBaseline='alphabetic';
+  ctx.fillText(S.proj.name||'(untitled project)',W/2,nameY);
+  // Metadata grid
+  const metaTop=nameY+Math.round(H*0.07);
+  const metaFs=Math.round(H*0.022);
+  const labelFs=Math.round(H*0.013);
+  const colW=Math.round(W*0.22);
+  const cols=[
+    {label:'QUOTE / JOB',value:S.proj.quote||'—'},
+    {label:'DATE',value:S.proj.date||'—'},
+    {label:'CUSTOMER',value:S.proj.customer||'—'},
+    {label:'PREPARED BY',value:S.proj.preparedBy||'—'},
+  ];
+  ctx.textAlign='left';
+  const metaStartX=Math.round((W-colW*4)/2);
+  cols.forEach((col,i)=>{
+    const x=metaStartX+i*colW;
+    ctx.fillStyle='#6b6f78';
+    ctx.font=`700 ${labelFs}px Arial`;
+    ctx.fillText(col.label,x,metaTop);
+    ctx.fillStyle='#2a2f36';
+    ctx.font=`600 ${metaFs}px Arial`;
+    ctx.fillText(String(col.value).slice(0,32),x,metaTop+labelFs*2);
+  });
+  // Summary stats
+  const stats=computeProjectStats();
+  const statsTop=metaTop+Math.round(H*0.10);
+  ctx.font=`800 ${Math.round(H*0.018)}px Arial`;
+  ctx.fillStyle='#2a2f36';
+  ctx.textAlign='left';
+  ctx.fillText('LAYOUT SUMMARY',metaStartX,statsTop);
+  ctx.fillStyle='#ff6a18';
+  ctx.fillRect(metaStartX,statsTop+4,Math.round(W*0.05),2);
+  const statRows=[
+    ['Total conveyor segments',stats.conveyorCount],
+    ['Total linear feet',`${stats.totalLinFt.toFixed(1)} ft`],
+    ['Conveyor vendor',stats.vendorOmni],
+    ['Powered Roller vendor',stats.vendorNor],
+    ['Turntables',stats.turntables],
+    ['Transfers',stats.transfers],
+    ['T-Cars',stats.tcars],
+  ];
+  const statRowFs=Math.round(H*0.02);
+  statRows.forEach((row,i)=>{
+    const y=statsTop+Math.round(H*0.04)+i*Math.round(statRowFs*1.6);
+    ctx.fillStyle='#2a2f36';
+    ctx.font=`500 ${statRowFs}px Arial`;
+    ctx.fillText(row[0],metaStartX,y);
+    ctx.font=`800 ${statRowFs}px Arial`;
+    ctx.textAlign='right';
+    ctx.fillText(String(row[1]),metaStartX+Math.round(W*0.30),y);
+    ctx.textAlign='left';
+  });
+  // Notes block (right side of stats)
+  if(S.proj.notes){
+    const notesX=Math.round(W*0.55);
+    const notesW=W-notesX-metaStartX;
+    ctx.font=`800 ${Math.round(H*0.018)}px Arial`;
+    ctx.fillStyle='#2a2f36';
+    ctx.fillText('PROJECT NOTES',notesX,statsTop);
+    ctx.fillStyle='#ff6a18';
+    ctx.fillRect(notesX,statsTop+4,Math.round(W*0.05),2);
+    ctx.fillStyle='#2a2f36';
+    ctx.font=`400 ${statRowFs}px Arial`;
+    const lines=wrapText(ctx,S.proj.notes,notesW);
+    lines.slice(0,18).forEach((ln,i)=>{
+      ctx.fillText(ln,notesX,statsTop+Math.round(H*0.04)+i*Math.round(statRowFs*1.4));
+    });
+  }
+  // Footer
+  ctx.font=`600 ${Math.round(H*0.014)}px Arial`;
+  ctx.fillStyle='#6b6f78';
+  ctx.textAlign='center';
+  ctx.fillText('Generated by FlowForge · '+new Date().toLocaleDateString(),W/2,H-20);
+  return c;
+}
+function wrapText(ctx,text,maxW){
+  const words=String(text||'').split(/\s+/);
+  const lines=[];let cur='';
+  for(const w of words){
+    const test=cur?cur+' '+w:w;
+    if(ctx.measureText(test).width>maxW&&cur){lines.push(cur);cur=w;}
+    else cur=test;
+  }
+  if(cur)lines.push(cur);
+  return lines;
 }
 function expPdf(){
   askFileName('Export PDF',defaultFileName('pdf'),'pdf',name=>{
@@ -6607,6 +6756,12 @@ function bindAll(){
   document.getElementById('exportBtn').addEventListener('click',openExportModal);
   document.getElementById('exportCancelBtn').addEventListener('click',()=>document.getElementById('exportModal').classList.add('hidden'));
   document.getElementById('exportContinueBtn').addEventListener('click',exportModalContinue);
+  // Phase 12 — show/hide cover-page options when PDF is selected.
+  document.querySelectorAll('input[name="expFmt"]').forEach(r=>{
+    r.addEventListener('change',()=>{
+      document.getElementById('exportPdfOptions').style.display=document.querySelector('input[name="expFmt"]:checked').value==='pdf'?'block':'none';
+    });
+  });
   document.getElementById('exportNotesYesBtn').addEventListener('click',()=>{
     // Keep pending export context so closing Notes returns to the export confirmation.
     document.getElementById('exportNotesModal').classList.add('hidden');
@@ -6704,14 +6859,17 @@ function bindAll(){
   // Project fields
   let projEditStart='';
   const captureProjStart=()=>{projEditStart=JSON.stringify(S.proj);};
-  ['pName','pQuote','pDate','pNotes'].forEach(id=>{
+  ['pName','pQuote','pDate','pNotes','pCustomer','pPreparedBy'].forEach(id=>{
     const field=document.getElementById(id);
+    if(!field)return;
     field.addEventListener('focus',captureProjStart);
     field.addEventListener('input',()=>{
       S.proj.name=document.getElementById('pName').value;
       S.proj.quote=document.getElementById('pQuote').value;
       S.proj.date=document.getElementById('pDate').value;
       S.proj.notes=document.getElementById('pNotes').value;
+      S.proj.customer=document.getElementById('pCustomer').value;
+      S.proj.preparedBy=document.getElementById('pPreparedBy').value;
       syncProjFields();
     });
     field.addEventListener('change',()=>{
@@ -7360,6 +7518,8 @@ let _pendingExport=null;
 let _pendingExportPreview=null;
 function openExportModal(){
   document.getElementById('exportModal').classList.remove('hidden');
+  // Phase 12 — sync the PDF-options panel visibility to the current radio.
+  document.getElementById('exportPdfOptions').style.display=document.querySelector('input[name="expFmt"]:checked')?.value==='pdf'?'block':'none';
 }
 function updateExportNotesSummary(){
   if(!_pendingExport)return;
@@ -7380,7 +7540,8 @@ function updateExportNotesSummary(){
 function exportModalContinue(){
   const fmt=document.querySelector('input[name="expFmt"]:checked').value;
   const area=document.querySelector('input[name="expArea"]:checked').value;
-  _pendingExport={fmt,area};
+  const includeCover=fmt==='pdf'&&document.getElementById('expIncludeCover').checked;
+  _pendingExport={fmt,area,includeCover};
   document.getElementById('exportModal').classList.add('hidden');
   updateExportNotesSummary();
   document.getElementById('exportNotesModal').classList.remove('hidden');
@@ -7449,8 +7610,11 @@ function finalizePreviewExport(){
         const a=document.createElement('a');a.href=dataUrl||canvas.toDataURL('image/png');a.download=name;document.body.appendChild(a);a.click();a.remove();
         showToast('PNG exported ('+area+')');
       }else{
-        const blob=buildPdfBlobFromCanvas(canvas);
-        dl(blob,name);showToast('PDF exported ('+area+')');
+        // Phase 12 — include cover page first when enabled.
+        const includeCover=_pendingExport?.includeCover;
+        const pages=includeCover?[buildCoverCanvas(canvas),canvas]:[canvas];
+        const blob=buildPdfBlobFromCanvases(pages);
+        dl(blob,name);showToast('PDF exported'+(includeCover?' with cover':'')+' ('+area+')');
       }
       _pendingExportPreview=null;
       _pendingExport=null;
