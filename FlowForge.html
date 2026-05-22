@@ -813,6 +813,10 @@ body.presentation-mode #presentationPill{display:block;}
       <div class="kbd-row"><span>Save project</span><kbd class="kbd-key">Ctrl+S</kbd></div>
       <div class="kbd-row"><span>Export PNG</span><kbd class="kbd-key">Ctrl+Shift+E</kbd></div>
       <div class="kbd-row"><span>Select all</span><kbd class="kbd-key">Ctrl+A</kbd></div>
+      <div class="kbd-row"><span>Group selection</span><kbd class="kbd-key">Ctrl+G</kbd></div>
+      <div class="kbd-row"><span>Ungroup selection</span><kbd class="kbd-key">Ctrl+Shift+G</kbd></div>
+      <div class="kbd-row"><span>Presentation mode</span><kbd class="kbd-key">Shift+P</kbd></div>
+      <div class="kbd-row"><span>Bypass alignment</span><kbd class="kbd-key">Alt</kbd><span style="color:var(--muted);margin-left:6px;">(hold while dragging)</span></div>
       <div class="kbd-row"><span>Undo</span><kbd class="kbd-key">Ctrl+Z</kbd></div>
       <div class="kbd-row"><span>Redo</span><kbd class="kbd-key">Ctrl+Y</kbd></div>
       <div class="kbd-row"><span>Zoom in</span><kbd class="kbd-key">Ctrl++</kbd></div>
@@ -2475,6 +2479,23 @@ function drawOverlay(){
       OV.appendChild(line);
     }
   }
+  // Group bounding boxes (Phase 8) — faint dashed AABB around every
+  // group that has any selected member.
+  const visibleGroups=new Set();
+  for(const id of S.selIds){
+    const o=S.objects.find(x=>x.id===id);
+    if(o&&o.groupId)visibleGroups.add(o.groupId);
+  }
+  for(const gid of visibleGroups){
+    const members=S.objects.filter(o=>o.groupId===gid);
+    if(members.length<2)continue;
+    let x1=Infinity,y1=Infinity,x2=-Infinity,y2=-Infinity;
+    members.forEach(m=>{const a=getAABB(m);x1=Math.min(x1,a.x);y1=Math.min(y1,a.y);x2=Math.max(x2,a.x+a.w);y2=Math.max(y2,a.y+a.h);});
+    if(!isFinite(x1))continue;
+    const pad=6;
+    const rect=svgEl('rect',{x:x1-pad,y:y1-pad,width:(x2-x1)+pad*2,height:(y2-y1)+pad*2,rx:'6',fill:'none',stroke:'#ff6a18','stroke-width':'1.2','stroke-dasharray':'5 4',opacity:'0.55'});
+    OV.appendChild(rect);
+  }
   // Conveyor labels are drawn in world space so their orientation is consistent in the editor and export.
   S.objects.filter(o=>o.type==='conveyor').forEach(addOverlayConveyorInfoLabel);
   // Tags draw above conveyor labels.
@@ -2615,13 +2636,18 @@ function startObjectDrag(e,obj){
   if(e.button!=null&&e.button!==0)return;
   e.preventDefault();e.stopPropagation();
 
-  // Ctrl/meta + click: toggle this object in the selection. No drag.
+  // Group expansion: if obj is in a group, every selection action
+  // operates on the whole group rather than the single member.
+  const groupTargets=obj.groupId?getGroupMemberIds(obj.groupId):[obj.id];
+
+  // Ctrl/meta + click: toggle this object (or its whole group) in the selection. No drag.
   if(e.ctrlKey||e.metaKey){
-    if(S.selIds.has(obj.id)){
-      S.selIds.delete(obj.id);
-      if(S.selId===obj.id)S.selId=S.selIds.size?[...S.selIds].pop():null;
+    const someIn=groupTargets.some(id=>S.selIds.has(id));
+    if(someIn){
+      groupTargets.forEach(id=>S.selIds.delete(id));
+      if(!S.selIds.has(S.selId))S.selId=S.selIds.size?[...S.selIds].pop():null;
     }else{
-      S.selIds.add(obj.id);
+      groupTargets.forEach(id=>S.selIds.add(id));
       S.selId=obj.id;
     }
     S._suppressClick=Date.now()+180;
@@ -2629,10 +2655,12 @@ function startObjectDrag(e,obj){
     return;
   }
 
-  // Plain click: if the grabbed object isn't in selIds, replace selection.
-  // If it already is, keep the group and promote this to primary (group drag).
+  // Plain click: if the grabbed object isn't in selIds, replace selection
+  // (expanding to its whole group). If it already is, keep the selection
+  // and promote this to primary so the group drags together.
   if(!S.selIds.has(obj.id)){
-    S.selIds.clear();S.selIds.add(obj.id);
+    S.selIds.clear();
+    groupTargets.forEach(id=>S.selIds.add(id));
     S.selId=obj.id;
   }else{
     S.selId=obj.id;
@@ -2927,6 +2955,55 @@ function sel(id,additive=false){
   if(id)S.selIds.add(id);
   S.selId=id;
   render();syncProps();
+}
+// ── OBJECT GROUPS (Phase 8) ───────────────────────────────────────────
+// Group membership is a single `groupId` string on each object. Click on
+// any group member expands the selection to all members so the group
+// moves/rotates/duplicates/deletes as one. Ctrl+G assigns a new shared
+// groupId to the current selection; Ctrl+Shift+G removes membership.
+function getGroupMemberIds(groupId){
+  if(!groupId)return[];
+  return S.objects.filter(o=>o.groupId===groupId).map(o=>o.id);
+}
+function expandSelectionToGroups(){
+  const adds=[];
+  for(const id of S.selIds){
+    const o=S.objects.find(x=>x.id===id);
+    if(o&&o.groupId)adds.push(...getGroupMemberIds(o.groupId));
+  }
+  adds.forEach(id=>S.selIds.add(id));
+}
+function groupObjects(ids){
+  const list=Array.isArray(ids)?ids:[...ids];
+  if(list.length<2)return false;
+  const gid=uid('grp');
+  list.forEach(id=>{
+    const o=S.objects.find(x=>x.id===id);
+    if(o)o.groupId=gid;
+  });
+  pushHistory();render();syncProps();
+  showToast('Grouped '+list.length+' objects');
+  return true;
+}
+function ungroupObjects(ids){
+  const list=Array.isArray(ids)?ids:[...ids];
+  if(!list.length)return false;
+  // Collect all groupIds touched so every member of those groups is
+  // ungrouped (the plan's "removes groupId from all selected" rule —
+  // but selecting one member implicitly selects the whole group, so
+  // the practical effect is whole-group ungrouping).
+  const touched=new Set();
+  list.forEach(id=>{
+    const o=S.objects.find(x=>x.id===id);
+    if(o?.groupId)touched.add(o.groupId);
+  });
+  if(!touched.size)return false;
+  S.objects.forEach(o=>{
+    if(o.groupId&&touched.has(o.groupId))delete o.groupId;
+  });
+  pushHistory();render();syncProps();
+  showToast('Ungrouped');
+  return true;
 }
 function selectAll(){
   S.selIds.clear();
@@ -3350,12 +3427,19 @@ function dupSel(){
   }
   const copies=[];
   const idMap=new Map();
+  // Phase 8 — remap original groupIds → new groupIds so duplicates form
+  // their own group(s), independent of the originals.
+  const groupIdMap=new Map();
   targets.forEach(target=>{
     const c=clone(target);
     const oldId=target.id;
     c.id=uid('c');
     idMap.set(oldId,c.id);
     c.x+=24;c.y+=24;c.rot=constrainRotForObject(c,c.rot);c.stackOrder=(Number(target.stackOrder)||0)+1;
+    if(c.groupId){
+      if(!groupIdMap.has(c.groupId))groupIdMap.set(c.groupId,uid('grp'));
+      c.groupId=groupIdMap.get(c.groupId);
+    }
     copies.push(c);
   });
   copies.forEach(c=>{
@@ -6232,6 +6316,9 @@ function bindAll(){
     if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='e'){e.preventDefault();openExportModal();return;}
     if(inInput)return;
     if((e.ctrlKey||e.metaKey)&&(e.key==='a'||e.key==='A')){e.preventDefault();selectAll();return;}
+    // Phase 8 — group / ungroup current selection.
+    if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&(e.key==='g'||e.key==='G')){e.preventDefault();groupObjects([...S.selIds]);return;}
+    if((e.ctrlKey||e.metaKey)&&e.shiftKey&&(e.key==='g'||e.key==='G')){e.preventDefault();ungroupObjects([...S.selIds]);return;}
     if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undo();return;}
     if((e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Y')){e.preventDefault();redo();return;}
     if((e.ctrlKey||e.metaKey)&&e.key==='0'){e.preventDefault();zoomFit();return;}
