@@ -575,6 +575,10 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
   <div class="top-options">
     <button class="tb-btn options-trigger" id="optionsBtn" aria-haspopup="true" aria-expanded="false" aria-controls="optionsMenu">Options ▾</button>
     <div class="options-menu hidden" id="optionsMenu" role="menu" aria-label="Options menu">
+      <div class="options-section-title">Examples</div>
+      <button class="options-item" data-demo="pickpack" data-close-menu="true" role="menuitem">Pick-Pack 12,000 sqft</button>
+      <button class="options-item" data-demo="pallet" data-close-menu="true" role="menuitem">Pallet-to-Piece Conversion</button>
+      <button class="options-item" data-demo="sortation" data-close-menu="true" role="menuitem">Multi-Lane Sortation</button>
       <div class="options-section-title">File</div>
       <button class="options-item" id="newBtn" data-close-menu="true" role="menuitem">New</button>
       <button class="options-item" id="saveBtn" data-close-menu="true" role="menuitem">Save</button>
@@ -5164,6 +5168,145 @@ function applyLoadedProjectData(data){
   syncOptionsMenuState();
   pushHistory();
 }
+
+// ── DEMO LAYOUTS (Phase 5) ────────────────────────────────────────────
+// Each demo is a flat list of placement recipes: {family, x, y, rot?,
+// bf?, length?, width?, vendor?, tag?, tagColor?, notes?, isCurve?,
+// cAng?, cHand?, isXfer?, isTurntable?, tShape?, mergeAngle?,
+// spurAngle?, sc?}. The builder funnels each recipe through the same
+// `mkObj()` path the library uses, so demos are guaranteed schema-
+// compatible with the live save/load pipeline.
+const DEMO_NOTES_PICKPACK=[
+  {text:'4 pick lanes → takeaway',x:120,y:60},
+  {text:'Pack stations',x:1080,y:60},
+];
+const DEMO_NOTES_PALLET=[
+  {text:'Receiving',x:80,y:60},
+  {text:'Workstations',x:520,y:60},
+  {text:'Outbound',x:1080,y:60},
+];
+const DEMO_NOTES_SORT=[
+  {text:'Infeed',x:80,y:60},
+  {text:'Sort engine',x:600,y:60},
+  {text:'3 outbound lanes',x:1100,y:60},
+];
+const DEMO_LAYOUTS={
+  pickpack:{
+    proj:{name:'Pick-Pack 12,000 sqft',quote:'DEMO-PP-001',date:new Date().toISOString().slice(0,10),notes:'Sample 12k sqft pick-pack flow: four pick lanes feed a powered takeaway, ending at four pack stations.'},
+    notes:DEMO_NOTES_PICKPACK,
+    items:[
+      // 4 pick lanes (CDLR 120" long, 27.25 BF) stacked vertically
+      {family:'cdlr',x:160,y:160,length:120,width:30,bf:27.25,tag:'L1',tagColor:'green'},
+      {family:'cdlr',x:160,y:260,length:120,width:30,bf:27.25,tag:'L2',tagColor:'green'},
+      {family:'cdlr',x:160,y:360,length:120,width:30,bf:27.25,tag:'L3',tagColor:'green'},
+      {family:'cdlr',x:160,y:460,length:120,width:30,bf:27.25,tag:'L4',tagColor:'green'},
+      // Per-lane spurs converging onto the takeaway
+      {family:'nor-spur',x:340,y:160,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      {family:'nor-spur',x:340,y:260,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      {family:'nor-spur',x:340,y:360,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      {family:'nor-spur',x:340,y:460,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      // Long powered takeaway running across to pack
+      {family:'nor-str',x:480,y:280,length:480,width:24,bf:21.25,vendor:'nor',tag:'TKA',tagColor:'orange'},
+      // Pack station tables (gravity)
+      {family:'gravity',x:1000,y:160,length:96,width:30,bf:27.25,tag:'P1'},
+      {family:'gravity',x:1000,y:260,length:96,width:30,bf:27.25,tag:'P2'},
+      {family:'gravity',x:1000,y:360,length:96,width:30,bf:27.25,tag:'P3'},
+      {family:'gravity',x:1000,y:460,length:96,width:30,bf:27.25,tag:'P4'},
+      // Pack-out collector
+      {family:'cdlr',x:1180,y:280,length:180,width:30,bf:27.25,rot:0,tag:'OUT',tagColor:'red'},
+    ],
+  },
+  pallet:{
+    proj:{name:'Pallet-to-Piece Conversion',quote:'DEMO-P2P-001',date:new Date().toISOString().slice(0,10),notes:'Pallet receiving → chain conveyor decant → manual workstations → powered outbound.'},
+    notes:DEMO_NOTES_PALLET,
+    items:[
+      // Inbound chain conveyor for pallets
+      {family:'chain',x:120,y:200,length:144,width:48,bf:42,sc:3,tag:'PALIN',tagColor:'orange'},
+      // Manual turntable for orientation
+      {family:'tt-man',x:300,y:200,length:48,width:48,bf:null,isTurntable:true,tShape:'square',cap:4000,tag:'TT'},
+      // Powered roller decant lane (the "decant" workstation feed)
+      {family:'nor-str',x:380,y:200,length:240,width:24,bf:21.25,vendor:'nor',tag:'DEC'},
+      // Two workstation drops (gravity, short)
+      {family:'gravity',x:640,y:140,length:72,width:30,bf:27.25,tag:'WS1'},
+      {family:'gravity',x:640,y:260,length:72,width:30,bf:27.25,tag:'WS2'},
+      // Workstation obstacles (employees/benches)
+      {family:'gravity',x:760,y:140,length:72,width:30,bf:27.25,tag:'WS3'},
+      {family:'gravity',x:760,y:260,length:72,width:30,bf:27.25,tag:'WS4'},
+      // Belt collector that feeds outbound
+      {family:'belt',x:880,y:200,length:200,width:30,bf:27.25,tag:'COL',tagColor:'green'},
+      // Outbound powered roller
+      {family:'nor-str',x:1140,y:200,length:240,width:24,bf:21.25,vendor:'nor',tag:'OUT',tagColor:'red'},
+    ],
+  },
+  sortation:{
+    proj:{name:'Multi-Lane Sortation',quote:'DEMO-SORT-001',date:new Date().toISOString().slice(0,10),notes:'High-throughput sortation: powered infeed, 360 sortation table or spur diverts, three outbound lanes to packout.'},
+    notes:DEMO_NOTES_SORT,
+    items:[
+      // Powered infeed
+      {family:'nor-str',x:80,y:300,length:360,width:24,bf:21.25,vendor:'nor',tag:'IN',tagColor:'orange'},
+      // 360 sort table at the diverge point
+      {family:'nor-360',x:460,y:282,length:36,width:36,bf:32,vendor:'nor',tag:'SORT',tagColor:'red'},
+      // Three lane spurs (30/45/30)
+      {family:'nor-spur',x:520,y:160,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      {family:'nor-spur',x:520,y:300,spurAngle:45,length:96,width:30,bf:27.25,vendor:'nor'},
+      {family:'nor-spur',x:520,y:440,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      // Three outbound powered lanes
+      {family:'nor-str',x:660,y:160,length:300,width:24,bf:21.25,vendor:'nor',tag:'A'},
+      {family:'nor-str',x:660,y:300,length:300,width:24,bf:21.25,vendor:'nor',tag:'B'},
+      {family:'nor-str',x:660,y:440,length:300,width:24,bf:21.25,vendor:'nor',tag:'C'},
+      // Each lane terminates in a pack station (gravity)
+      {family:'gravity',x:980,y:160,length:96,width:30,bf:27.25,tag:'PA',tagColor:'green'},
+      {family:'gravity',x:980,y:300,length:96,width:30,bf:27.25,tag:'PB',tagColor:'green'},
+      {family:'gravity',x:980,y:440,length:96,width:30,bf:27.25,tag:'PC',tagColor:'green'},
+      // Crossover transfer (between lane A and B for re-routing)
+      {family:'nor-xfer',x:1120,y:230,length:48,width:22,bf:19.25,sc:3,isXfer:true,vendor:'nor',tag:'XF'},
+    ],
+  },
+};
+function buildDemoPayload(key){
+  const demo=DEMO_LAYOUTS[key];
+  if(!demo)return null;
+  const objects=demo.items.map((item,idx)=>{
+    const spec={...item};
+    const o=mkObj(spec,{x:spec.x,y:spec.y});
+    if(Number.isFinite(spec.rot))o.rot=spec.rot;
+    if(spec.tag)o.tag=spec.tag;
+    if(spec.tagColor)o.tagColor=spec.tagColor;
+    o.stackOrder=idx;
+    return o;
+  });
+  const notes=(demo.notes||[]).map(n=>{const tn=makeTextNote(n.x,n.y);if(n.text)tn.text=n.text;if(n.w)tn.w=n.w;return tn;});
+  return {
+    proj:{...demo.proj},
+    objects,
+    customs:[],
+    libTagPrefs:{},
+    notes,
+    notesHidden:false,
+    labelsHidden:false,
+    conveyorLabelsHidden:false,
+    tagsHidden:false,
+  };
+}
+function loadDemoLayout(key){
+  if(!DEMO_LAYOUTS[key])return;
+  const hasWork=S.objects.length>0||S.notes.length>0;
+  if(hasWork&&!confirm('Replace the current layout with the "'+DEMO_LAYOUTS[key].proj.name+'" example?\n\nUnsaved changes will be lost (Undo will restore them).'))return;
+  const payload=buildDemoPayload(key);
+  if(!payload){showToast('Demo unavailable');return;}
+  // Snapshot pre-load state in the same shape pushHistory writes so undo
+  // can revert across the demo load (the funnel itself wipes history).
+  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden}):null;
+  applyLoadedProjectData(payload);
+  if(prevSnap){
+    S.history.unshift(prevSnap);
+    S.historyIdx=S.history.length-1;
+    updateUndoRedo();
+  }
+  clearAutosave();
+  showToast('Loaded: '+payload.proj.name);
+}
+
 function getLinkedBFOptions(obj){
   if(!obj||obj.type!=='conveyor')return[];
   const linked=new Map();
@@ -5707,6 +5850,9 @@ function bindAll(){
   // ── TOOLBAR ──
   bindOptionsMenu();
   bindTutorial();
+  document.querySelectorAll('#optionsMenu [data-demo]').forEach(btn=>{
+    btn.addEventListener('click',()=>loadDemoLayout(btn.getAttribute('data-demo')));
+  });
   document.getElementById('newBtn').addEventListener('click',()=>{
     if(!confirm('Start a new layout? Unsaved changes will be lost.'))return;
     S.objects=[];S.selId=null;S.selIds.clear();S.tagMove=null;S.tagAnchorMove=null;S.history=[];S.historyIdx=-1;
