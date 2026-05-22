@@ -595,6 +595,27 @@ body.presentation-mode #canvas-wrap{border-radius:0;}
 #presentationPill:hover{background:var(--forge-charcoal-dark);}
 body.presentation-mode #presentationPill{display:block;}
 
+/* ── COMPARE MODE (Phase 13) ──
+   Two-pane side-by-side: live workspace on the left, static
+   comparison canvas on the right. Library + custom panels collapse
+   so both halves get room. Mutations are blocked while compare
+   mode is active. */
+body.compare-mode-active #libPanel,
+body.compare-mode-active #customPanel{display:none!important;}
+body.compare-mode-active #shell{grid-template-columns:1fr 1fr var(--props-col);}
+body.compare-mode-active #compareCanvasWrap{display:block!important;}
+body.compare-mode-active #workspace,
+body.compare-mode-active #compareCanvasHost{pointer-events:auto;}
+body.compare-mode-active #workspace{cursor:not-allowed;}
+#compareBanner{
+  position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;display:none;
+  background:var(--forge-charcoal);color:var(--forge-cream);
+  padding:8px 18px;border-radius:999px;font:600 12px/1 'Segoe UI',system-ui,sans-serif;
+  letter-spacing:.3px;cursor:pointer;border:1px solid var(--forge-orange);
+  box-shadow:0 4px 16px rgba(0,0,0,.3);
+}
+body.compare-mode-active #compareBanner{display:block;}
+
 /* ── TOAST ── */
 .toast{
   position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
@@ -745,6 +766,12 @@ body.presentation-mode #presentationPill{display:block;}
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- COMPARE: side-by-side canvas (Phase 13 split mode) -->
+  <div id="compareCanvasWrap" style="display:none;position:relative;border-left:2px solid var(--forge-orange);background:var(--forge-cream);overflow:auto;">
+    <div id="compareCanvasHeader" style="position:sticky;top:0;left:0;z-index:5;background:var(--forge-charcoal);color:var(--forge-cream);padding:6px 12px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:8px;border-bottom:2px solid var(--forge-orange);"></div>
+    <div id="compareCanvasHost" style="padding:8px;"></div>
   </div>
 
   <!-- RIGHT: Properties -->
@@ -1161,6 +1188,7 @@ body.presentation-mode #presentationPill{display:block;}
     </div>
     <div class="modal-footer">
       <button id="compareLoadBtn">Load comparison file…</button>
+      <button class="btn-primary" id="compareSplitBtn" disabled>Side-by-side mode</button>
       <button class="btn-cancel" id="compareCancelBtn">Close</button>
     </div>
   </div>
@@ -1289,6 +1317,7 @@ body.presentation-mode #presentationPill{display:block;}
 </div>
 
 <div id="presentationPill" role="button" tabindex="0" aria-label="Exit presentation mode (Esc)">Presentation — Esc to exit</div>
+<div id="compareBanner" role="button" tabindex="0" aria-label="Exit compare mode (Esc)">⇆ Comparing — Esc to exit</div>
 
 <script>
 'use strict';
@@ -1450,6 +1479,7 @@ const S={
   commentFilter:'open', // Phase 15 — all/open/resolved filter for the global Comments panel.
   commentAuthor:'', // Phase 15 — last author entered, suggested on the next comment.
   flowAnimation:{enabled:false,particles:[],lastTick:0,frameHandle:null}, // Phase 18 — animated particles along powered conveyors.
+  compareMode:{enabled:false,payload:null,canvas:null}, // Phase 13 split — read-only side-by-side comparison.
 };
 
 // DOM refs
@@ -2896,6 +2926,7 @@ function syncDraggedItemVisual(obj){
 // ── CENTRALIZED DRAG CONTROLLER ──
 // This is the key architectural fix. One handler for all placed-object movement.
 function startObjectDrag(e,obj){
+  if(compareModeBlocking())return;
   if(S.placeMode||S.drag)return;
   if(e.button!=null&&e.button!==0)return;
   e.preventDefault();e.stopPropagation();
@@ -3115,6 +3146,7 @@ function deactivateLL(id){const o=S.objects.find(x=>x.id===id);if(o){o.llActive=
 
 // Placement mode (click-to-place from library)
 function beginPlacement(spec,source='std',customDef=null){
+  if(compareModeBlocking())return;
   if(customDef&&blockExhaustedCustom(customDef))return;
   clearPlacement();
   const ghost=mkObj(spec,{x:-999,y:-999});
@@ -3238,6 +3270,7 @@ function expandSelectionToGroups(){
   adds.forEach(id=>S.selIds.add(id));
 }
 function groupObjects(ids){
+  if(compareModeBlocking())return false;
   const list=Array.isArray(ids)?ids:[...ids];
   if(list.length<2)return false;
   const gid=uid('grp');
@@ -3250,6 +3283,7 @@ function groupObjects(ids){
   return true;
 }
 function ungroupObjects(ids){
+  if(compareModeBlocking())return false;
   const list=Array.isArray(ids)?ids:[...ids];
   if(!list.length)return false;
   // Collect all groupIds touched so every member of those groups is
@@ -3508,6 +3542,7 @@ function rotateObjectsAsRigidSelection(targets,step=45){
   return true;
 }
 function rotateSelectedObjects(step=45,primary=null){
+  if(compareModeBlocking())return false;
   const base=primary||S.objects.find(o=>o.id===S.selId);
   const targets=getSelectedActionTargets(base);
   if(targets.length>1)return rotateObjectsAsRigidSelection(targets,step);
@@ -3690,6 +3725,7 @@ function updateFromProps(){
 
 // Actions
 function dupSel(){
+  if(compareModeBlocking())return false;
   const primary=S.objects.find(o=>o.id===S.selId);if(!primary)return false;
   const targets=getSelectedActionTargets(primary);
   const customCounts=new Map();
@@ -3746,6 +3782,7 @@ function dupSel(){
   return true;
 }
 function delSel(){
+  if(compareModeBlocking())return;
   if(!S.selIds.size&&!S.selId)return;
   const idsToDelete=S.selIds.size?[...S.selIds]:[S.selId];
   idsToDelete.forEach(id=>{
@@ -6441,6 +6478,7 @@ function measureSnap(worldX,worldY){
   return best?{x:best.x,y:best.y,snap:true,kind:best.kind}:{x:worldX,y:worldY,snap:false};
 }
 function handleMeasureClick(clientX,clientY){
+  if(compareModeBlocking())return;
   if(!S.measureMode)return;
   const raw=clientToWS(clientX,clientY);
   const p=measureSnap(raw.x,raw.y);
@@ -6655,6 +6693,8 @@ function closeCompareModal(){
   _compareProject=null;
 }
 function renderCompareModal(){
+  const splitBtn=document.getElementById('compareSplitBtn');
+  if(splitBtn)splitBtn.disabled=!_compareProject;
   const left=document.getElementById('compareLeftPreview');
   const right=document.getElementById('compareRightPreview');
   const leftStats=document.getElementById('compareLeftStats');
@@ -6700,6 +6740,64 @@ function loadCompareFile(file){
     }catch(e){alert('Invalid project file. '+(e?.message||''));}
   };
   r.readAsText(file);
+}
+// Spec-compliant split-canvas compare mode. Renders the comparison
+// payload as a static high-res image in a panel beside the live
+// workspace. Mutations are blocked through compareModeBlocking() at
+// every entry point that would change S.
+function compareModeBlocking(){return!!S.compareMode?.enabled;}
+function enterCompareSplitMode(){
+  if(!_compareProject){alert('Load a comparison file first.');return;}
+  // Capture a snapshot of the comparison payload by temporarily
+  // swapping it into S and calling buildCanvas, then restoring S.
+  const saved={
+    objects:S.objects,customs:S.customs,proj:S.proj,libTagPrefs:S.libTagPrefs,
+    notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,
+    conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,
+    dimensions:S.dimensions,selId:S.selId,selIds:new Set(S.selIds),
+    selDimId:S.selDimId,selNoteId:S.selNoteId,
+  };
+  try{
+    S.objects=_compareProject.objects;
+    S.customs=_compareProject.customs;
+    S.proj=_compareProject.proj;
+    S.libTagPrefs=_compareProject.libTagPrefs||{};
+    S.notes=_compareProject.notes||[];
+    S.notesHidden=!!_compareProject.notesHidden;
+    S.labelsHidden=!!_compareProject.labelsHidden;
+    S.conveyorLabelsHidden=_compareProject.conveyorLabelsHidden==null?true:!!_compareProject.conveyorLabelsHidden;
+    S.tagsHidden=!!_compareProject.tagsHidden;
+    S.dimensions=Array.isArray(_compareProject.dimensions)?_compareProject.dimensions:[];
+    S.selId=null;S.selIds=new Set();S.selDimId=null;S.selNoteId=null;
+    const exportState=getCroppedExportState();
+    S.compareMode.canvas=buildCanvas(exportState);
+    S.compareMode.payload=_compareProject;
+  }finally{
+    Object.assign(S,saved);
+  }
+  // Apply state and mount the canvas.
+  S.compareMode.enabled=true;
+  document.body.classList.add('compare-mode-active');
+  const host=document.getElementById('compareCanvasHost');
+  const hdr=document.getElementById('compareCanvasHeader');
+  host.innerHTML='';
+  hdr.innerHTML=`<span style="flex:1;">⇆ Comparison: ${escapeHtml(_compareProject.proj?.name||'(unnamed)')}</span><span style="color:rgba(245,239,222,0.7);font-weight:400;font-size:11px;">read-only · static snapshot</span>`;
+  const img=S.compareMode.canvas;
+  img.style.maxWidth='100%';
+  img.style.maxHeight='calc(100vh - 60px)';
+  img.style.display='block';
+  img.style.borderRadius='6px';
+  host.appendChild(img);
+  closeCompareModal();
+  showToast('Compare mode — Esc to exit');
+}
+function exitCompareSplitMode(){
+  if(!S.compareMode.enabled)return;
+  S.compareMode.enabled=false;
+  S.compareMode.canvas=null;
+  document.body.classList.remove('compare-mode-active');
+  const host=document.getElementById('compareCanvasHost');
+  if(host)host.innerHTML='';
 }
 
 // ── FLOW ANIMATION (Phase 18) ─────────────────────────────────────────
@@ -7120,6 +7218,7 @@ function installPresentationModalAutoExit(){
 }
 
 function loadDemoLayout(key){
+  if(compareModeBlocking()){showToast('Exit compare mode first');return;}
   if(!DEMO_LAYOUTS[key])return;
   const hasWork=S.objects.length>0||S.notes.length>0;
   if(hasWork&&!confirm('Replace the current layout with the "'+DEMO_LAYOUTS[key].proj.name+'" example?\n\nUnsaved changes will be lost (Undo will restore them).'))return;
@@ -7613,6 +7712,7 @@ function bindAll(){
   WS.addEventListener('dragenter',e=>e.preventDefault());
   WS.addEventListener('dragover',e=>{e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect='copy';});
   WS.addEventListener('drop',e=>{
+    if(compareModeBlocking()){e.preventDefault();showToast('Drop blocked — exit compare mode first');return;}
     e.preventDefault();
     // Standard library item
     const stdData=e.dataTransfer.getData('onapkin-std');
@@ -7722,6 +7822,8 @@ function bindAll(){
   document.getElementById('compareCancelBtn').addEventListener('click',closeCompareModal);
   document.getElementById('compareLoadBtn').addEventListener('click',()=>document.getElementById('compareFileInput').click());
   document.getElementById('compareFileInput').addEventListener('change',e=>{if(e.target.files[0])loadCompareFile(e.target.files[0]);e.target.value='';});
+  document.getElementById('compareSplitBtn').addEventListener('click',enterCompareSplitMode);
+  document.getElementById('compareBanner').addEventListener('click',exitCompareSplitMode);
   // Phase 15 — Comments wiring
   document.getElementById('commentsBtn').addEventListener('click',openCommentsModal);
   document.getElementById('commentsModalClose').addEventListener('click',closeCommentsModal);
@@ -8028,6 +8130,7 @@ function bindAll(){
       if(S.placeMode){clearPlacement();return;}
       if(S.llActive){deactivateLL(S.llActive);return;}
       if(S.measureMode){toggleMeasureMode(false);return;}
+      if(S.compareMode?.enabled){exitCompareSplitMode();return;}
       const kbdOl=document.getElementById('kbdOverlay');
       if(!kbdOl.classList.contains('hidden')){kbdOl.classList.add('hidden');return;}
       // Esc with no other modal-cursor mode pending: exit presentation if active, else clear selection.
