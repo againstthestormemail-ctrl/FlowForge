@@ -620,6 +620,7 @@ body.presentation-mode #presentationPill{display:block;}
     <div class="tb-div"></div>
     <button class="tb-btn accent" id="exportBtn">Export</button>
     <button class="tb-btn" id="notesBtn" aria-label="Open notes">Notes</button>
+    <button class="tb-btn" id="compareBtn" title="Compare the current layout against another saved .flowforge file">⇆ Compare</button>
     <button class="tb-btn" id="commentsBtn" title="View all comments">💬 Comments <span id="commentsCountBadge" style="display:none;background:var(--forge-orange);color:#fff;border-radius:999px;padding:0 6px;font-size:10px;font-weight:800;margin-left:2px;"></span></button>
     <button class="tb-btn" id="saveRevisionBtn" title="Save a labeled snapshot of the current layout">📌 Revision</button>
     <button class="tb-btn" id="historyBtn" title="View saved revisions">🕘 History</button>
@@ -907,6 +908,7 @@ body.presentation-mode #presentationPill{display:block;}
 
 <input type="file" id="openFileInput" accept=".flowforge,.omninapkin,.json" hidden/>
 <input type="file" id="custFileInput" accept=".ffcustom,.omnicustom,.json" hidden/>
+<input type="file" id="compareFileInput" accept=".flowforge,.omninapkin,.json" hidden/>
 <a id="dlLink" hidden></a>
 
 <!-- ═══ CUSTOM CONVEYOR EDITOR MODAL ═══ -->
@@ -1129,6 +1131,37 @@ body.presentation-mode #presentationPill{display:block;}
     </div>
     <div class="modal-footer">
       <button class="btn-primary" id="notesDoneBtn">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="compareModal">
+  <div class="modal" style="width:1080px;max-width:96vw;max-height:92vh;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title">Compare Layouts</div>
+      <button class="modal-close" id="compareModalClose">×</button>
+    </div>
+    <div class="modal-body" style="padding:10px 14px;font-size:13px;">
+      <div style="display:flex;gap:12px;align-items:stretch;">
+        <div style="flex:1;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:#fafbfc;">
+          <div style="background:var(--blue-light);padding:6px 10px;font-weight:700;font-size:12px;color:var(--text);" id="compareLeftLabel">Current layout</div>
+          <div id="compareLeftPreview" style="background:var(--forge-cream);min-height:280px;display:flex;align-items:center;justify-content:center;"></div>
+          <div id="compareLeftStats" style="font-size:11px;color:var(--muted);padding:6px 10px;border-top:1px solid var(--border);"></div>
+        </div>
+        <div style="flex:1;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:#fafbfc;">
+          <div style="background:var(--blue-light);padding:6px 10px;font-weight:700;font-size:12px;color:var(--text);" id="compareRightLabel">Comparison layout</div>
+          <div id="compareRightPreview" style="background:var(--forge-cream);min-height:280px;display:flex;align-items:center;justify-content:center;color:var(--muted);">No comparison file loaded yet.</div>
+          <div id="compareRightStats" style="font-size:11px;color:var(--muted);padding:6px 10px;border-top:1px solid var(--border);"></div>
+        </div>
+      </div>
+      <div style="margin-top:10px;padding:10px 14px;background:var(--forge-cream2);border-radius:6px;">
+        <div style="font-weight:800;font-size:11px;color:var(--text);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">Deltas</div>
+        <div id="compareDeltas" style="font-size:12px;color:var(--text);"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="compareLoadBtn">Load comparison file…</button>
+      <button class="btn-cancel" id="compareCancelBtn">Close</button>
     </div>
   </div>
 </div>
@@ -6537,6 +6570,138 @@ function drawDimensions(){
   }
 }
 
+// ── COMPARE LAYOUTS (Phase 13) ────────────────────────────────────────
+// Side-by-side comparison of the current layout against a second
+// saved .flowforge file. Practical compact version: thumbnails of
+// both layouts in a modal with computed deltas. Editing is not
+// blocked (the modal is read-only by virtue of being a separate
+// modal — no canvas duplication that would invite mutation).
+let _compareProject=null;
+function computeLayoutStats(payload){
+  // payload shape matches a .flowforge file. Falls back to S if null.
+  const proj=payload?.proj||S.proj;
+  const objects=payload?.objects||S.objects;
+  const notes=payload?.notes||S.notes;
+  const conveyors=objects.filter(o=>o.type==='conveyor');
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  let totalBF=0,straightCount=0,curveCount=0,xferCount=0,ttCount=0,tcarCount=0;
+  conveyors.forEach(o=>{
+    minX=Math.min(minX,o.x);minY=Math.min(minY,o.y);
+    const wInches=o.length||(o.oR?o.oR*2:0)||30;
+    const hInches=o.width||(o.oR?o.oR*2:0)||30;
+    maxX=Math.max(maxX,o.x+wInches*1.2);maxY=Math.max(maxY,o.y+hInches*1.2);
+    if(o.bf)totalBF+=Number(o.bf)||0;
+    if(o.isCurve)curveCount++;else if(o.isXfer)xferCount++;else if(o.isTurntable)ttCount++;else if(o.family==='tcar-car')tcarCount++;else straightCount++;
+  });
+  const footW=isFinite(minX)?(maxX-minX)/12:0;
+  const footH=isFinite(minY)?(maxY-minY)/12:0;
+  return{
+    name:proj.name||'',
+    objectCount:objects.length,
+    conveyorCount:conveyors.length,
+    noteCount:notes.length,
+    totalBF,
+    footprintFt:[footW.toFixed(1),footH.toFixed(1)],
+    straightCount,curveCount,xferCount,ttCount,tcarCount,
+  };
+}
+function buildLayoutThumbnail(payload){
+  // Returns a small canvas (220x160) with the layout drawn fit-to-frame.
+  // Uses a temporary S-swap so we can reuse buildCanvas for accuracy.
+  const c=document.createElement('canvas');c.width=220;c.height=160;
+  const ctx=c.getContext('2d');
+  ctx.fillStyle='#f5efde';ctx.fillRect(0,0,220,160);
+  if(!payload)return c;
+  // Determine bbox from payload objects (in world pixels, no S swap needed).
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  payload.objects.forEach(o=>{
+    if(o.type!=='conveyor')return;
+    const wInches=o.length||(o.oR?o.oR*2:0)||30;
+    const hInches=o.width||(o.oR?o.oR*2:0)||30;
+    minX=Math.min(minX,o.x);minY=Math.min(minY,o.y);
+    maxX=Math.max(maxX,o.x+wInches*1.2);maxY=Math.max(maxY,o.y+hInches*1.2);
+  });
+  if(!isFinite(minX))return c;
+  const pad=20;
+  const scale=Math.min((220-pad*2)/(maxX-minX),(160-pad*2)/(maxY-minY));
+  ctx.save();
+  ctx.translate(pad,pad);
+  ctx.scale(scale,scale);
+  ctx.translate(-minX,-minY);
+  payload.objects.forEach(o=>{
+    if(o.type!=='conveyor')return;
+    const wInches=o.length||(o.oR?o.oR*2:0)||30;
+    const hInches=o.width||(o.oR?o.oR*2:0)||30;
+    const w=wInches*1.2,h=hInches*1.2; // approximate at ppi=1.2
+    ctx.save();
+    ctx.translate(o.x+w/2,o.y+h/2);
+    ctx.rotate((o.rot||0)*Math.PI/180);
+    ctx.translate(-w/2,-h/2);
+    const stroke=STROKES[o.family]||'#1d4f8a';
+    const fill=FILLS[o.family]||'rgba(29,79,138,0.05)';
+    ctx.fillStyle=fill;ctx.strokeStyle=stroke;ctx.lineWidth=1.5/scale;
+    ctx.fillRect(0,0,w,h);ctx.strokeRect(0,0,w,h);
+    ctx.restore();
+  });
+  ctx.restore();
+  return c;
+}
+function openCompareModal(){
+  document.getElementById('compareModal').classList.remove('hidden');
+  renderCompareModal();
+}
+function closeCompareModal(){
+  document.getElementById('compareModal').classList.add('hidden');
+  _compareProject=null;
+}
+function renderCompareModal(){
+  const left=document.getElementById('compareLeftPreview');
+  const right=document.getElementById('compareRightPreview');
+  const leftStats=document.getElementById('compareLeftStats');
+  const rightStats=document.getElementById('compareRightStats');
+  // Left = current S
+  const cur=computeLayoutStats({proj:S.proj,objects:S.objects,notes:S.notes});
+  document.getElementById('compareLeftLabel').textContent='Current — '+(cur.name||'(untitled)');
+  left.innerHTML='';
+  left.appendChild(buildLayoutThumbnail({proj:S.proj,objects:S.objects,notes:S.notes}));
+  leftStats.textContent=`${cur.objectCount} objects · ${cur.totalBF.toFixed(1)}" total BF · ${cur.footprintFt[0]}' × ${cur.footprintFt[1]}'`;
+  // Right = _compareProject
+  if(_compareProject){
+    const cmp=computeLayoutStats(_compareProject);
+    document.getElementById('compareRightLabel').textContent='Comparison — '+(cmp.name||'(untitled)');
+    right.innerHTML='';
+    right.appendChild(buildLayoutThumbnail(_compareProject));
+    rightStats.textContent=`${cmp.objectCount} objects · ${cmp.totalBF.toFixed(1)}" total BF · ${cmp.footprintFt[0]}' × ${cmp.footprintFt[1]}'`;
+    // Deltas
+    const dObj=cmp.objectCount-cur.objectCount;
+    const dBF=cmp.totalBF-cur.totalBF;
+    const sign=v=>(v>0?'+':'')+v;
+    document.getElementById('compareDeltas').innerHTML=`
+      Objects: <strong>${cur.objectCount}</strong> → <strong>${cmp.objectCount}</strong> (${sign(dObj)})<br>
+      Total BF: <strong>${cur.totalBF.toFixed(1)}"</strong> → <strong>${cmp.totalBF.toFixed(1)}"</strong> (${sign(dBF.toFixed(1))}")<br>
+      Footprint: <strong>${cur.footprintFt[0]}' × ${cur.footprintFt[1]}'</strong> → <strong>${cmp.footprintFt[0]}' × ${cmp.footprintFt[1]}'</strong><br>
+      <span style="color:var(--muted);">Straight: ${cur.straightCount} → ${cmp.straightCount} · Curves: ${cur.curveCount} → ${cmp.curveCount} · Transfers: ${cur.xferCount} → ${cmp.xferCount} · Turntables: ${cur.ttCount} → ${cmp.ttCount}</span>
+    `;
+  }else{
+    document.getElementById('compareRightLabel').textContent='Comparison layout';
+    right.innerHTML='<div style="padding:20px;color:var(--muted);">No comparison file loaded yet. Click "Load comparison file…" below.</div>';
+    rightStats.textContent='';
+    document.getElementById('compareDeltas').textContent='Load a comparison file to see deltas.';
+  }
+}
+function loadCompareFile(file){
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const payload=parseProjectPayload(r.result);
+      _compareProject=payload;
+      renderCompareModal();
+      showToast('Comparison loaded: '+(payload.proj?.name||'(unnamed)'));
+    }catch(e){alert('Invalid project file. '+(e?.message||''));}
+  };
+  r.readAsText(file);
+}
+
 // ── FLOW ANIMATION (Phase 18) ─────────────────────────────────────────
 // Animated particles flowing along powered conveyor paths. Pure demo
 // polish — toggled off by default to spare battery. Uses requestAnimation
@@ -7551,6 +7716,12 @@ function bindAll(){
   document.getElementById('layersDoneBtn').addEventListener('click',closeLayersModal);
   // Phase 10 — Measure tool wiring
   document.getElementById('measureBtn').addEventListener('click',()=>toggleMeasureMode());
+  // Phase 13 — Compare wiring
+  document.getElementById('compareBtn').addEventListener('click',openCompareModal);
+  document.getElementById('compareModalClose').addEventListener('click',closeCompareModal);
+  document.getElementById('compareCancelBtn').addEventListener('click',closeCompareModal);
+  document.getElementById('compareLoadBtn').addEventListener('click',()=>document.getElementById('compareFileInput').click());
+  document.getElementById('compareFileInput').addEventListener('change',e=>{if(e.target.files[0])loadCompareFile(e.target.files[0]);e.target.value='';});
   // Phase 15 — Comments wiring
   document.getElementById('commentsBtn').addEventListener('click',openCommentsModal);
   document.getElementById('commentsModalClose').addEventListener('click',closeCommentsModal);
