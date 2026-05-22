@@ -642,6 +642,7 @@ body.presentation-mode #presentationPill{display:block;}
       <div class="options-section-title">Display</div>
       <button class="options-item" id="presentationBtn" data-close-menu="true" role="menuitem" title="Hide all UI chrome for projector demos (Shift+P)">Presentation Mode</button>
       <button class="options-item" id="showThroughputBtn" role="menuitem" title="Show estimated cases/hour on powered conveyors">Show Throughput</button>
+      <button class="options-item" id="animateFlowBtn" role="menuitem" title="Animate dots flowing along powered conveyors (demo polish)">▶ Animate Flow</button>
       <div style="display:flex;gap:5px;padding:4px 6px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--muted);">
         <label style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:60px;"><span>FPM</span><input id="tpDefSpeed" type="number" min="0" step="1" value="60" style="width:100%;font-size:11px;padding:2px 4px;"/></label>
         <label style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:60px;"><span>Case in</span><input id="tpDefCaseLen" type="number" min="0" step="0.5" value="18" style="width:100%;font-size:11px;padding:2px 4px;"/></label>
@@ -717,6 +718,7 @@ body.presentation-mode #presentationPill{display:block;}
       <svg id="gridSvg"></svg>
       <div id="itemsLayer"></div>
       <svg id="overlaySvg"></svg>
+      <svg id="flowAnimSvg" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:215;"></svg>
       <svg id="notesArrowsSvg"></svg>
       <div id="notesTextLayer"></div>
       <div class="canvas-toolbar">
@@ -1385,6 +1387,7 @@ const S={
   comments:[], // Phase 15 — pinned, resolvable per-object comments {id,objectId,author,body,timestampMs,resolved,orphan?}.
   commentFilter:'open', // Phase 15 — all/open/resolved filter for the global Comments panel.
   commentAuthor:'', // Phase 15 — last author entered, suggested on the next comment.
+  flowAnimation:{enabled:false,particles:[],lastTick:0,frameHandle:null}, // Phase 18 — animated particles along powered conveyors.
 };
 
 // DOM refs
@@ -6362,6 +6365,104 @@ function drawDimensions(){
   }
 }
 
+// ── FLOW ANIMATION (Phase 18) ─────────────────────────────────────────
+// Animated particles flowing along powered conveyor paths. Pure demo
+// polish — toggled off by default to spare battery. Uses requestAnimation
+// Frame and a dedicated SVG layer so the world doesn't re-render every
+// frame. Flow direction matches the conveyor's local +X axis after
+// rotation; arc-following on curves uses the same iR/oR/cAng geometry
+// the renderer uses.
+const FLOW_FAMILIES=new Set(['cdlr','bdlr','belt','pbelt','nor-str','nor-cur','nor-merge','nor-spur','chain','tt-pow']);
+function flowEligible(obj){return obj&&obj.type==='conveyor'&&FLOW_FAMILIES.has(obj.family);}
+function flowPathLength(obj){
+  if(obj.isCurve){
+    const r=((obj.iR||0)+(obj.oR||0))/2;
+    return r*Math.PI/180*(obj.cAng||90);
+  }
+  return Number(obj.length)||120;
+}
+function flowPathPointAtT(obj,t){
+  // t in [0,1]. Returns world {x, y} along the conveyor's centerline,
+  // respecting curve geometry + rotation about the object's frame.
+  const{w,h}=getSize(obj);
+  if(obj.isCurve){
+    // Curve geometry: arc pivot at (handedness corner). Reuse the same
+    // logic the renderer uses but simplified for path traversal.
+    const iR=px(obj.iR||24),oR=px(obj.oR||42);
+    const cAng=(obj.cAng||90)*Math.PI/180;
+    const right=(obj.cHand||'right')==='right';
+    const oRpix=oR;
+    // Pivot point (local frame): for right-hand 90° curve, pivot at (0, oR)
+    // For arbitrary cAng, pivot remains at (0, oR) and arc sweeps clockwise from -Y axis.
+    const pivX=right?0:oRpix,pivY=oRpix;
+    const midR=(iR+oR)/2;
+    const a=t*cAng*(right?1:-1);
+    const lx=pivX+midR*Math.sin(a),ly=pivY-midR*Math.cos(a);
+    // Rotate by obj.rot about the object's center.
+    const cx=obj.x+oRpix/2,cy=obj.y+oRpix/2;
+    return rotPt(obj.x+lx,obj.y+ly,cx,cy,obj.rot);
+  }else{
+    // Straight: centerline runs left→right at h/2 in local frame.
+    const lx=t*w,ly=h/2;
+    const cx=obj.x+w/2,cy=obj.y+h/2;
+    return rotPt(obj.x+lx,obj.y+ly,cx,cy,obj.rot);
+  }
+}
+function spawnFlowParticle(obj,now){
+  S.flowAnimation.particles.push({objId:obj.id,t:0,speed:0.18+Math.random()*0.12,bornAt:now,jitter:(Math.random()-0.5)*4});
+}
+function flowAnimTick(now){
+  if(!S.flowAnimation.enabled){return;}
+  const dt=Math.min(0.1,(now-(S.flowAnimation.lastTick||now))/1000);
+  S.flowAnimation.lastTick=now;
+  // Spawn ~1 particle/sec per powered conveyor (jittered).
+  S.objects.forEach(obj=>{
+    if(!flowEligible(obj)||obj.hidden)return;
+    if(Math.random()<dt*1.1)spawnFlowParticle(obj,now);
+  });
+  // Advance particles.
+  const alive=[];
+  for(const p of S.flowAnimation.particles){
+    const obj=S.objects.find(o=>o.id===p.objId);
+    if(!obj||obj.hidden){continue;}
+    p.t+=p.speed*dt;
+    if(p.t>=1)continue;
+    alive.push(p);
+  }
+  S.flowAnimation.particles=alive;
+  // Render particles into the dedicated flowAnimSvg layer.
+  const layer=document.getElementById('flowAnimSvg');
+  if(!layer)return;
+  // Width/height attribute keeps SVG coordinate system 1:1 with workspace pixels
+  const wsW=WS?.scrollWidth||1400;
+  const wsH=WS?.scrollHeight||860;
+  layer.setAttribute('width',wsW);
+  layer.setAttribute('height',wsH);
+  layer.innerHTML='';
+  for(const p of S.flowAnimation.particles){
+    const obj=S.objects.find(o=>o.id===p.objId);if(!obj)continue;
+    const pt=flowPathPointAtT(obj,Math.min(1,p.t));
+    if(!pt)continue;
+    layer.appendChild(svgEl('circle',{cx:pt.x+p.jitter*0.2,cy:pt.y,r:'3.2',fill:'#ff6a18',opacity:String(Math.min(1,3*(1-p.t)*p.t+0.4))}));
+  }
+  if(S.flowAnimation.enabled)S.flowAnimation.frameHandle=requestAnimationFrame(flowAnimTick);
+}
+function toggleFlowAnimation(force){
+  const want=typeof force==='boolean'?force:!S.flowAnimation.enabled;
+  S.flowAnimation.enabled=want;
+  const btn=document.getElementById('animateFlowBtn');
+  if(btn)btn.textContent=want?'■ Stop Flow':'▶ Animate Flow';
+  if(want){
+    S.flowAnimation.lastTick=performance.now();
+    S.flowAnimation.frameHandle=requestAnimationFrame(flowAnimTick);
+  }else{
+    if(S.flowAnimation.frameHandle)cancelAnimationFrame(S.flowAnimation.frameHandle);
+    S.flowAnimation.particles=[];
+    const layer=document.getElementById('flowAnimSvg');
+    if(layer)layer.innerHTML='';
+  }
+}
+
 // ── COMMENTS (Phase 15) ───────────────────────────────────────────────
 // Pinned, resolvable comments on canvas objects. Distinct from notes
 // (which are free-form floating annotations); comments are tied to
@@ -7312,6 +7413,7 @@ function bindAll(){
   });
   // Phase 11 — Throughput wiring (toggle + defaults + per-object overrides + collapsible section)
   document.getElementById('showThroughputBtn').addEventListener('click',()=>toggleShowThroughput());
+  document.getElementById('animateFlowBtn').addEventListener('click',()=>toggleFlowAnimation());
   const tpHook=(inputId,key)=>{
     const el=document.getElementById(inputId);if(!el)return;
     el.addEventListener('input',()=>{
