@@ -1101,6 +1101,49 @@ body.presentation-mode #presentationPill{display:block;}
   </div>
 </div>
 
+<div class="modal-overlay hidden" id="bomEditorModal">
+  <div class="modal" style="width:920px;max-height:88vh;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title">BOM / Quote Editor</div>
+      <button class="modal-close" id="bomEditorClose">×</button>
+    </div>
+    <div class="modal-body" style="font-size:13px;line-height:1.4;padding:8px 14px;">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:8px;font-size:11px;color:var(--muted);">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="bomIncludePricingChk"/> Include pricing columns in exported BOM</label>
+        <label style="display:flex;align-items:center;gap:6px;">Tax % <input id="bomTaxInput" type="number" min="0" step="0.01" style="width:60px;font-size:11px;padding:2px 4px;"/></label>
+        <div style="flex:1;"></div>
+        <div id="bomEditorScope" style="font-weight:700;color:var(--text);"></div>
+      </div>
+      <div style="max-height:60vh;overflow:auto;border:1px solid var(--border);border-radius:6px;">
+        <table id="bomEditorTable" style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead style="background:var(--blue-light);position:sticky;top:0;">
+            <tr style="text-align:left;">
+              <th style="padding:6px 8px;">SKU / Name</th>
+              <th style="padding:6px 8px;text-align:right;">Qty</th>
+              <th style="padding:6px 8px;">Lead time</th>
+              <th style="padding:6px 8px;">Vendor</th>
+              <th class="bom-price-col" style="padding:6px 8px;text-align:right;">List $</th>
+              <th class="bom-price-col" style="padding:6px 8px;text-align:right;">Markup %</th>
+              <th class="bom-price-col" style="padding:6px 8px;text-align:right;">Unit sell</th>
+              <th class="bom-price-col" style="padding:6px 8px;text-align:right;">Extended</th>
+            </tr>
+          </thead>
+          <tbody id="bomEditorBody"></tbody>
+        </table>
+      </div>
+      <div id="bomEditorTotals" style="margin-top:10px;padding:8px 10px;background:var(--blue-light);border-radius:6px;font-weight:700;display:none;align-items:center;gap:14px;">
+        <span style="flex:1;">Subtotal: <span id="bomSubtotal">$0.00</span></span>
+        <span>Tax: <span id="bomTax">$0.00</span></span>
+        <span>Total: <span id="bomTotal" style="color:var(--forge-orange);">$0.00</span></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" id="bomEditorCancel">Cancel</button>
+      <button class="btn-primary" id="bomEditorExport">Export BOM</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="historyModal">
   <div class="modal" style="width:560px;max-height:82vh;">
     <div class="modal-hdr">
@@ -1292,6 +1335,9 @@ const S={
   showThroughput:false, // Phase 11 — toggle for the cases/hr badge overlay.
   throughputDefaults:{speedFpm:60,caseLenIn:18,caseGapIn:6}, // Phase 11 — fallback when obj.throughput is missing.
   revisions:[], // Phase 16 — labeled project-state snapshots {id,label,timestampMs,payload}.
+  bomAnnotations:{}, // Phase 17 — per-BOM-line {leadTime, vendor, listPrice, markupPct} keyed by family+name+BF+shape.
+  bomIncludePricing:false, // Phase 17 — whether the exported HTML carries price columns.
+  bomTaxPct:0, // Phase 17 — global tax % applied to subtotal.
 };
 
 // DOM refs
@@ -5151,22 +5197,23 @@ function expPdf(){
   });
 }
 
-function exportBOM(){
-  reconcileCustomQuantities();
+function bomLineKey(row){
+  // Stable key the user can identify across project edits. Keeps the
+  // annotation attached even as objects move around the canvas.
+  return [row.family,row.name,row.bf||'',row.length||'',row.width||'',row.type||''].join('|');
+}
+function consolidateBOMRows(useFullQuote){
   const placedConveyors=S.objects.filter(o=>o.type==='conveyor');
-  const hasCustoms=Array.isArray(S.customs)&&S.customs.length>0;
-  if(!placedConveyors.length&&!hasCustoms){alert('No conveyors or custom quote items available for BOM export.');return;}
-  const useFullQuote=hasCustoms&&confirm('Export the FULL imported/custom quote BOM?\n\nOK = full custom quote quantities\nCancel = placed canvas items only');
   const conveyors=useFullQuote
     ?S.customs.map(def=>({...def,type:'conveyor',name:def.customName||def.name,length:def.length||def.dL,width:def.width||def.dW,_bomQty:Number(def.qty||1),_bomPlaced:Number(def.placed||0),_bomRemaining:Number(def.remaining||0)}))
     :placedConveyors;
-  if(!conveyors.length){alert('No placed conveyors on canvas.');return;}
   const groups={};
   conveyors.forEach(obj=>{
     const key=`${obj.family}|${obj.length||''}|${obj.width||''}|${obj.bf||''}|${obj.isCurve?obj.cAng:''}|${obj.isXfer?'x':''}|${obj.isTurntable?'t':''}`;
     if(!groups[key]){
       groups[key]={
         tag:obj.tag||'',
+        rawFamily:obj.family||'',
         family:(obj.family||'').replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
         name:obj.name||obj.family,
         vendor:obj.vendor==='nor'?'Powered Roller 24V':'Conveyor',
@@ -5181,7 +5228,20 @@ function exportBOM(){
     groups[key].qty+=(obj._bomQty||1);
     if(obj._bomQty){groups[key].placed=(groups[key].placed||0)+obj._bomPlaced;groups[key].remaining=(groups[key].remaining||0)+obj._bomRemaining;}
   });
-  const rows=Object.values(groups).sort((a,b)=>(a.vendor+a.family+a.name).localeCompare(b.vendor+b.family+b.name));
+  return Object.values(groups).sort((a,b)=>(a.vendor+a.family+a.name).localeCompare(b.vendor+b.family+b.name));
+}
+function exportBOM(){
+  reconcileCustomQuantities();
+  const placedConveyors=S.objects.filter(o=>o.type==='conveyor');
+  const hasCustoms=Array.isArray(S.customs)&&S.customs.length>0;
+  if(!placedConveyors.length&&!hasCustoms){alert('No conveyors or custom quote items available for BOM export.');return;}
+  const useFullQuote=hasCustoms&&confirm('Export the FULL imported/custom quote BOM?\n\nOK = full custom quote quantities\nCancel = placed canvas items only');
+  const rows=consolidateBOMRows(useFullQuote);
+  if(!rows.length){alert('No placed conveyors on canvas.');return;}
+  // Phase 17 — open the BOM Editor instead of exporting directly.
+  openBomEditor({rows,useFullQuote});
+}
+function exportBOMHTML(rows,useFullQuote){
   const totalUnits=rows.reduce((s,r)=>s+r.qty,0);
   const totalPlaced=rows.reduce((s,r)=>s+(r.placed||0),0);
   const totalRemaining=rows.reduce((s,r)=>s+(r.remaining||0),0);
@@ -5192,19 +5252,44 @@ function exportBOM(){
   const projectQuote=esc(S.proj.quote||'');
   const projectDate=esc(S.proj.date||today);
   const projectNotes=esc(S.proj.notes||'');
-  const tableBody=rows.map((r,i)=>`
+  const includePricing=!!S.bomIncludePricing;
+  let grandSubtotal=0;
+  const tableBody=rows.map((r,i)=>{
+    const ann=S.bomAnnotations[bomLineKey(r)]||{};
+    const leadTime=ann.leadTime||'';
+    const annVendor=ann.vendor||r.vendor;
+    const listPrice=Number(ann.listPrice)||0;
+    const markupPct=Number(ann.markupPct)||0;
+    const unitSell=listPrice*(1+markupPct/100);
+    const extended=unitSell*r.qty;
+    grandSubtotal+=extended;
+    const fmtCur=v=>v?'$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):'<span class="muted">—</span>';
+    return`
       <tr>
         <td class="c-num">${i+1}</td>
         <td>${r.tag?`<span class="pill pill-${esc(r.tag).toLowerCase().replace(/[^a-z0-9]/g,'')||'tag'}">${esc(r.tag)}</span>`:'<span class="muted">—</span>'}</td>
         <td><strong>${esc(r.name)}</strong><div class="sub">${esc(r.family)}</div></td>
         <td>${esc(r.type)}</td>
-        <td>${esc(r.vendor)}</td>
+        <td>${esc(annVendor)}</td>
         <td class="c-num">${r.length||'<span class="muted">—</span>'}</td>
         <td class="c-num">${r.width||'<span class="muted">—</span>'}</td>
         <td class="c-num">${r.bf||'<span class="muted">—</span>'}</td>
         <td class="c-num">${r.cap?`${esc(r.cap)} lb`:'<span class="muted">—</span>'}</td>
+        <td>${esc(leadTime)||'<span class="muted">—</span>'}</td>
         <td class="c-qty">${r.qty}</td>
-      </tr>`).join('');
+        ${includePricing?`<td class="c-num">${fmtCur(listPrice)}</td><td class="c-num">${markupPct?markupPct.toFixed(1)+'%':'<span class="muted">—</span>'}</td><td class="c-num">${fmtCur(unitSell)}</td><td class="c-num"><strong>${fmtCur(extended)}</strong></td>`:''}
+      </tr>`;
+  }).join('');
+  const taxPct=Number(S.bomTaxPct)||0;
+  const tax=grandSubtotal*taxPct/100;
+  const grandTotal=grandSubtotal+tax;
+  const pricingHeaderCells=includePricing?`<th class="c-num">List $</th><th class="c-num">Markup %</th><th class="c-num">Unit Sell</th><th class="c-num">Extended</th>`:'';
+  const pricingFooter=includePricing?`
+  <div class="notes" style="background:#fffbf3;border-top:none;display:flex;gap:20px;justify-content:flex-end;font-size:14px;">
+    <div><span class="lbl">Subtotal</span> <strong>$${grandSubtotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></div>
+    ${taxPct?`<div><span class="lbl">Tax (${taxPct}%)</span> <strong>$${tax.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></div>`:''}
+    <div style="color:var(--accent);font-size:16px;"><span class="lbl">Total</span> <strong>$${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></div>
+  </div>`:'';
   const html=`<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"/>
@@ -5272,12 +5357,15 @@ function exportBOM(){
       <tr>
         <th>#</th><th>Tag</th><th>Item</th><th>Type</th><th>Vendor</th>
         <th class="c-num">Length (in)</th><th class="c-num">Width (in)</th><th class="c-num">BF (in)</th><th class="c-num">Capacity</th>
+        <th>Lead Time</th>
         <th class="c-qty">Qty</th>
+        ${pricingHeaderCells}
       </tr>
     </thead>
     <tbody>${tableBody}
     </tbody>
   </table>
+  ${pricingFooter}
   ${projectNotes?`<div class="notes"><div class="lbl">Project Notes</div>${projectNotes.replace(/\n/g,'<br>')}</div>`:''}
   <footer>Generated by FlowForge · ${esc(today)}</footer>
 </div>
@@ -5287,6 +5375,121 @@ function exportBOM(){
     dl(new Blob([html],{type:'text/html'}),name);
     showToast(`BOM exported — ${rows.length} line(s), ${totalUnits} unit(s)`);
   });
+}
+
+// ── BOM EDITOR (Phase 17) ─────────────────────────────────────────────
+// Annotation-aware quote editor. Opens before BOM export so the user
+// can review consolidated lines, fill in lead time / vendor / list
+// price / markup, and decide whether to include pricing in the
+// exported HTML. Annotations are keyed by family+name+BF+shape so
+// they persist across object edits.
+let _bomEditorContext=null;
+function openBomEditor(ctx){
+  _bomEditorContext=ctx;
+  document.getElementById('bomEditorModal').classList.remove('hidden');
+  document.getElementById('bomEditorScope').textContent=ctx.useFullQuote?'Full Imported / Custom Quote':'Placed Canvas Items Only';
+  document.getElementById('bomIncludePricingChk').checked=!!S.bomIncludePricing;
+  document.getElementById('bomTaxInput').value=S.bomTaxPct||0;
+  renderBomEditor();
+}
+function closeBomEditor(){
+  document.getElementById('bomEditorModal').classList.add('hidden');
+  _bomEditorContext=null;
+}
+function renderBomEditor(){
+  if(!_bomEditorContext)return;
+  const body=document.getElementById('bomEditorBody');
+  const rows=_bomEditorContext.rows;
+  const showPricing=!!S.bomIncludePricing;
+  document.querySelectorAll('.bom-price-col').forEach(el=>el.style.display=showPricing?'':'none');
+  let subtotal=0;
+  body.innerHTML=rows.map((r,i)=>{
+    const key=bomLineKey(r);
+    const ann=S.bomAnnotations[key]||{};
+    const list=Number(ann.listPrice)||0;
+    const mk=Number(ann.markupPct)||0;
+    const unitSell=list*(1+mk/100);
+    const ext=unitSell*r.qty;
+    subtotal+=ext;
+    const fmtCur=v=>v?'$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+    return`
+      <tr data-key="${escapeHtml(key)}">
+        <td style="padding:4px 8px;"><strong>${escapeHtml(r.name)}</strong><div style="font-size:10px;color:var(--muted);">${escapeHtml(r.type)} · ${escapeHtml(r.family)}${r.bf?' · BF '+r.bf+'"':''}</div></td>
+        <td style="padding:4px 8px;text-align:right;font-weight:700;">${r.qty}</td>
+        <td style="padding:4px 8px;"><input class="bom-lead-time" value="${escapeHtml(ann.leadTime||'')}" placeholder="e.g. 4 wks" style="width:80px;padding:2px 4px;font-size:11px;"/></td>
+        <td style="padding:4px 8px;"><input class="bom-vendor" value="${escapeHtml(ann.vendor||r.vendor)}" style="width:130px;padding:2px 4px;font-size:11px;"/></td>
+        <td class="bom-price-col" style="padding:4px 8px;text-align:right;${showPricing?'':'display:none;'}"><input class="bom-list" type="number" min="0" step="0.01" value="${ann.listPrice||''}" style="width:80px;padding:2px 4px;font-size:11px;text-align:right;"/></td>
+        <td class="bom-price-col" style="padding:4px 8px;text-align:right;${showPricing?'':'display:none;'}"><input class="bom-markup" type="number" min="0" step="0.1" value="${ann.markupPct||''}" style="width:60px;padding:2px 4px;font-size:11px;text-align:right;"/></td>
+        <td class="bom-price-col" style="padding:4px 8px;text-align:right;${showPricing?'':'display:none;'}">${fmtCur(unitSell)}</td>
+        <td class="bom-price-col" style="padding:4px 8px;text-align:right;font-weight:700;${showPricing?'':'display:none;'}">${fmtCur(ext)}</td>
+      </tr>`;
+  }).join('');
+  // Wire input listeners. Avoid re-rendering the whole body on input
+  // (it would detach the next field the user is typing into); instead
+  // update the row's computed cells + totals footer in place.
+  body.querySelectorAll('tr[data-key]').forEach(tr=>{
+    const key=tr.dataset.key;
+    const writeAnn=()=>{
+      if(!S.bomAnnotations[key])S.bomAnnotations[key]={};
+      const ann=S.bomAnnotations[key];
+      const lt=tr.querySelector('.bom-lead-time').value.trim();
+      const vd=tr.querySelector('.bom-vendor').value.trim();
+      const lp=tr.querySelector('.bom-list')?.value;
+      const mk=tr.querySelector('.bom-markup')?.value;
+      if(lt)ann.leadTime=lt;else delete ann.leadTime;
+      if(vd)ann.vendor=vd;else delete ann.vendor;
+      if(lp!=null&&lp!==''&&Number(lp)>0)ann.listPrice=Number(lp);else delete ann.listPrice;
+      if(mk!=null&&mk!==''&&Number(mk)!==0)ann.markupPct=Number(mk);else delete ann.markupPct;
+      if(!Object.keys(ann).length)delete S.bomAnnotations[key];
+      updateBomEditorComputed();
+    };
+    tr.querySelectorAll('input').forEach(input=>{
+      input.addEventListener('input',writeAnn);
+      input.addEventListener('blur',()=>pushHistory());
+    });
+  });
+  updateBomEditorComputed();
+}
+function updateBomEditorComputed(){
+  // Recompute per-row unit-sell / extended cells + totals footer
+  // without rebuilding the table body (which would steal focus from
+  // whichever input the user is typing into).
+  if(!_bomEditorContext)return;
+  const showPricing=!!S.bomIncludePricing;
+  document.querySelectorAll('.bom-price-col').forEach(el=>el.style.display=showPricing?'':'none');
+  let subtotal=0;
+  const fmtCur=v=>v?'$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+  _bomEditorContext.rows.forEach(r=>{
+    const key=bomLineKey(r);
+    const tr=document.querySelector(`#bomEditorBody tr[data-key="${CSS.escape(key)}"]`);
+    if(!tr)return;
+    const ann=S.bomAnnotations[key]||{};
+    const list=Number(ann.listPrice)||0;
+    const mk=Number(ann.markupPct)||0;
+    const unitSell=list*(1+mk/100);
+    const ext=unitSell*r.qty;
+    subtotal+=ext;
+    // The 5th and 6th .bom-price-col cells (Unit sell, Extended) are
+    // the two display-only price cells — find them by position.
+    const priceCells=tr.querySelectorAll('.bom-price-col');
+    if(priceCells.length>=4){
+      priceCells[2].textContent=fmtCur(unitSell);
+      priceCells[3].innerHTML='<strong>'+fmtCur(ext)+'</strong>';
+    }
+  });
+  const totalsBox=document.getElementById('bomEditorTotals');
+  if(showPricing){
+    totalsBox.style.display='flex';
+    const taxPct=Number(S.bomTaxPct)||0;
+    const tax=subtotal*taxPct/100;
+    const total=subtotal+tax;
+    const fmt=v=>'$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+    document.getElementById('bomSubtotal').textContent=fmt(subtotal);
+    document.getElementById('bomTax').textContent=fmt(tax);
+    document.getElementById('bomTotal').textContent=fmt(total);
+  }else{
+    totalsBox.style.display='none';
+  }
 }
 
 function buildFullCanvas(){
@@ -5341,7 +5544,7 @@ function buildFullCanvas(){
 // ══════════════════════════════════════════════════
 function saveProj(){
   askFileName('Save Project',defaultFileName('flowforge'),'flowforge',name=>{
-    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions});
+    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct});
     dl(new Blob([data],{type:'application/json'}),name);showToast('Project saved');
     clearAutosave();
   });
@@ -5381,7 +5584,7 @@ function loadCust(file){
 // HISTORY (UNDO/REDO)
 // ══════════════════════════════════════════════════
 function pushHistory(){
-  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions});
+  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct});
   S.history=S.history.slice(0,S.historyIdx+1);
   S.history.push(snap);S.historyIdx=S.history.length-1;
   if(S.history.length>80){S.history.shift();S.historyIdx--;}
@@ -5605,6 +5808,9 @@ function parseProjectPayload(raw){
     showThroughput:!!d.showThroughput,
     throughputDefaults:isPlainObject(d.throughputDefaults)?{speedFpm:Number(d.throughputDefaults.speedFpm)||60,caseLenIn:Number(d.throughputDefaults.caseLenIn)||18,caseGapIn:Number(d.throughputDefaults.caseGapIn)||6}:{speedFpm:60,caseLenIn:18,caseGapIn:6},
     revisions:Array.isArray(d.revisions)?d.revisions.filter(r=>isPlainObject(r)&&isPlainObject(r.payload)&&typeof r.id==='string'):[],
+    bomAnnotations:isPlainObject(d.bomAnnotations)?d.bomAnnotations:{},
+    bomIncludePricing:!!d.bomIncludePricing,
+    bomTaxPct:Number(d.bomTaxPct)||0,
   };
 }
 function applyLoadedProjectData(data){
@@ -5620,6 +5826,9 @@ function applyLoadedProjectData(data){
   if(data.showThroughput!=null)S.showThroughput=!!data.showThroughput;
   if(data.throughputDefaults)S.throughputDefaults={...S.throughputDefaults,...data.throughputDefaults};
   S.revisions=Array.isArray(data.revisions)?data.revisions:[];
+  S.bomAnnotations=isPlainObject(data.bomAnnotations)?data.bomAnnotations:{};
+  S.bomIncludePricing=!!data.bomIncludePricing;
+  S.bomTaxPct=Number(data.bomTaxPct)||0;
   S.notesHidden=!!data.notesHidden||!!data.labelsHidden;
   S.labelsHidden=S.notesHidden;
   S.conveyorLabelsHidden=data.conveyorLabelsHidden==null?true:!!data.conveyorLabelsHidden;
@@ -6257,7 +6466,7 @@ function loadDemoLayout(key){
   if(!payload){showToast('Demo unavailable');return;}
   // Snapshot pre-load state in the same shape pushHistory writes so undo
   // can revert across the demo load (the funnel itself wipes history).
-  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions}):null;
+  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct}):null;
   applyLoadedProjectData(payload);
   if(prevSnap){
     S.history.unshift(prevSnap);
@@ -6851,6 +7060,18 @@ function bindAll(){
   document.getElementById('historyBtn').addEventListener('click',openHistoryModal);
   document.getElementById('historyModalClose').addEventListener('click',closeHistoryModal);
   document.getElementById('historyDoneBtn').addEventListener('click',closeHistoryModal);
+  // Phase 17 — BOM Editor wiring
+  document.getElementById('bomEditorClose').addEventListener('click',closeBomEditor);
+  document.getElementById('bomEditorCancel').addEventListener('click',closeBomEditor);
+  document.getElementById('bomIncludePricingChk').addEventListener('change',e=>{S.bomIncludePricing=e.target.checked;renderBomEditor();});
+  document.getElementById('bomTaxInput').addEventListener('input',e=>{S.bomTaxPct=Number(e.target.value)||0;renderBomEditor();});
+  document.getElementById('bomEditorExport').addEventListener('click',()=>{
+    if(!_bomEditorContext)return;
+    const ctx=_bomEditorContext;
+    closeBomEditor();
+    pushHistory();
+    exportBOMHTML(ctx.rows,ctx.useFullQuote);
+  });
   // Phase 11 — Throughput wiring (toggle + defaults + per-object overrides + collapsible section)
   document.getElementById('showThroughputBtn').addEventListener('click',()=>toggleShowThroughput());
   const tpHook=(inputId,key)=>{
@@ -6897,6 +7118,7 @@ function bindAll(){
     S.notes=[];S.notesHidden=false;S.labelsHidden=false;S.conveyorLabelsHidden=true;S.tagsHidden=false;S.selNoteId=null;closeNotePopover();
     S.dimensions=[];S.selDimId=null;S.measureMode=null;S.measurePreview=null;
     S.revisions=[];
+    S.bomAnnotations={};S.bomIncludePricing=false;S.bomTaxPct=0;
     S.proj={name:'FlowForge Project',quote:'',date:new Date().toISOString().slice(0,10),notes:''};
     syncProjFields();render();renderNotes();syncMarkupToggleButtons();syncOptionsMenuState();pushHistory();clearAutosave();
   });
