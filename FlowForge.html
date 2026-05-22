@@ -543,6 +543,79 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
 .tutorial-actions button:disabled{opacity:.45;cursor:not-allowed;}
 .tutorial-actions .btn-primary{background:var(--blue);border-color:var(--blue);color:#fff;}
 
+/* ── LAYERS PANEL (Phase 9) ── */
+.layer-row{
+  display:grid;grid-template-columns:18px 22px 1fr auto;align-items:center;gap:8px;
+  padding:6px 8px;border-radius:5px;cursor:pointer;
+  border:1px solid transparent;background:transparent;
+  transition:background .12s,border-color .12s;
+  user-select:none;
+}
+.layer-row:hover{background:var(--blue-light);}
+.layer-row.selected{background:var(--blue-light);border-color:var(--forge-orange);}
+.layer-row.dragging{opacity:.55;}
+.layer-row.drop-above{box-shadow:inset 0 2px 0 var(--forge-orange);}
+.layer-row.drop-below{box-shadow:inset 0 -2px 0 var(--forge-orange);}
+.layer-row.hidden-item .layer-name{color:var(--muted);text-decoration:line-through;}
+.layer-handle{
+  cursor:grab;color:var(--muted);font-size:14px;line-height:1;text-align:center;
+  font-weight:700;letter-spacing:-1px;
+}
+.layer-handle:active{cursor:grabbing;}
+.layer-eye{
+  background:none;border:1px solid var(--border);border-radius:4px;
+  width:22px;height:22px;font-size:12px;cursor:pointer;color:var(--text);
+  display:flex;align-items:center;justify-content:center;padding:0;
+}
+.layer-eye:hover{background:var(--forge-cream2);border-color:var(--forge-orange);}
+.layer-eye.off{opacity:.4;}
+.layer-name{font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.layer-meta{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
+
+/* ── PRESENTATION MODE (Phase 6) ──
+   Chrome-hide for projector demos. Topbar, side panels, canvas
+   toolbar, and zoom bar collapse so the cream workspace fills the
+   viewport. Selection, drag, rotation still work — this is a
+   visibility toggle, not read-only. */
+body.presentation-mode #topbar,
+body.presentation-mode #libPanel,
+body.presentation-mode #customPanel,
+body.presentation-mode #propsPanel,
+body.presentation-mode #shell .canvas-toolbar,
+body.presentation-mode #shell .zoom-bar{display:none!important;}
+body.presentation-mode #shell{grid-template-columns:1fr;height:100vh;padding:0;gap:0;}
+body.presentation-mode #canvas-wrap{border-radius:0;}
+#presentationPill{
+  position:fixed;top:16px;right:16px;z-index:9999;display:none;
+  background:var(--forge-charcoal);color:var(--forge-cream);
+  padding:8px 14px;border-radius:999px;font:600 12px/1 'Segoe UI',system-ui,sans-serif;
+  letter-spacing:.3px;cursor:pointer;border:1px solid var(--forge-orange);
+  box-shadow:0 4px 16px rgba(0,0,0,.3);
+}
+#presentationPill:hover{background:var(--forge-charcoal-dark);}
+body.presentation-mode #presentationPill{display:block;}
+
+/* ── COMPARE MODE (Phase 13) ──
+   Two-pane side-by-side: live workspace on the left, static
+   comparison canvas on the right. Library + custom panels collapse
+   so both halves get room. Mutations are blocked while compare
+   mode is active. */
+body.compare-mode-active #libPanel,
+body.compare-mode-active #customPanel{display:none!important;}
+body.compare-mode-active #shell{grid-template-columns:1fr 1fr var(--props-col);}
+body.compare-mode-active #compareCanvasWrap{display:block!important;}
+body.compare-mode-active #workspace,
+body.compare-mode-active #compareCanvasHost{pointer-events:auto;}
+body.compare-mode-active #workspace{cursor:not-allowed;}
+#compareBanner{
+  position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;display:none;
+  background:var(--forge-charcoal);color:var(--forge-cream);
+  padding:8px 18px;border-radius:999px;font:600 12px/1 'Segoe UI',system-ui,sans-serif;
+  letter-spacing:.3px;cursor:pointer;border:1px solid var(--forge-orange);
+  box-shadow:0 4px 16px rgba(0,0,0,.3);
+}
+body.compare-mode-active #compareBanner{display:block;}
+
 /* ── TOAST ── */
 .toast{
   position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
@@ -568,6 +641,10 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
     <div class="tb-div"></div>
     <button class="tb-btn accent" id="exportBtn">Export</button>
     <button class="tb-btn" id="notesBtn" aria-label="Open notes">Notes</button>
+    <button class="tb-btn" id="compareBtn" title="Compare the current layout against another saved .flowforge file">⇆ Compare</button>
+    <button class="tb-btn" id="commentsBtn" title="View all comments">💬 Comments <span id="commentsCountBadge" style="display:none;background:var(--forge-orange);color:#fff;border-radius:999px;padding:0 6px;font-size:10px;font-weight:800;margin-left:2px;"></span></button>
+    <button class="tb-btn" id="saveRevisionBtn" title="Save a labeled snapshot of the current layout">📌 Revision</button>
+    <button class="tb-btn" id="historyBtn" title="View saved revisions">🕘 History</button>
     <button class="tb-btn" id="hideNotesBtn" aria-label="Hide notes" title="Hide/show notes in layout and exports">Hide Notes</button>
     <button class="tb-btn" id="hideLayoutLabelsBtn" aria-label="Hide text notes" title="Text notes are controlled by Hide/Show Notes" style="display:none">Hide Text Notes</button>
     <button class="tb-btn" id="kbdBtn" aria-label="Keyboard shortcuts" title="Keyboard shortcuts">⌨</button>
@@ -575,12 +652,24 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
   <div class="top-options">
     <button class="tb-btn options-trigger" id="optionsBtn" aria-haspopup="true" aria-expanded="false" aria-controls="optionsMenu">Options ▾</button>
     <div class="options-menu hidden" id="optionsMenu" role="menu" aria-label="Options menu">
+      <div class="options-section-title">Examples</div>
+      <button class="options-item" data-demo="pickpack" data-close-menu="true" role="menuitem">Pick-Pack 12,000 sqft</button>
+      <button class="options-item" data-demo="pallet" data-close-menu="true" role="menuitem">Pallet-to-Piece Conversion</button>
+      <button class="options-item" data-demo="sortation" data-close-menu="true" role="menuitem">Multi-Lane Sortation</button>
       <div class="options-section-title">File</div>
       <button class="options-item" id="newBtn" data-close-menu="true" role="menuitem">New</button>
       <button class="options-item" id="saveBtn" data-close-menu="true" role="menuitem">Save</button>
       <button class="options-item" id="openBtn" data-close-menu="true" role="menuitem">Open</button>
       <button class="options-item" id="bomBtn" data-close-menu="true" role="menuitem" aria-label="Export BOM">BOM</button>
       <div class="options-section-title">Display</div>
+      <button class="options-item" id="presentationBtn" data-close-menu="true" role="menuitem" title="Hide all UI chrome for projector demos (Shift+P)">Presentation Mode</button>
+      <button class="options-item" id="showThroughputBtn" role="menuitem" title="Show estimated cases/hour on powered conveyors">Show Throughput</button>
+      <button class="options-item" id="animateFlowBtn" role="menuitem" title="Animate dots flowing along powered conveyors (demo polish)">▶ Animate Flow</button>
+      <div style="display:flex;gap:5px;padding:4px 6px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--muted);">
+        <label style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:60px;"><span>FPM</span><input id="tpDefSpeed" type="number" min="0" step="1" value="60" style="width:100%;font-size:11px;padding:2px 4px;"/></label>
+        <label style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:60px;"><span>Case in</span><input id="tpDefCaseLen" type="number" min="0" step="0.5" value="18" style="width:100%;font-size:11px;padding:2px 4px;"/></label>
+        <label style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:60px;"><span>Gap in</span><input id="tpDefCaseGap" type="number" min="0" step="0.5" value="6" style="width:100%;font-size:11px;padding:2px 4px;"/></label>
+      </div>
       <button class="options-item" id="hideLabelsBtn" aria-label="Show conveyor labels" title="Show/hide BF and conveyor type labels inside each conveyor box" role="menuitem">Show Conveyor Labels</button>
       <button class="options-item" id="hideTagsBtn" aria-label="Hide tags" title="Show/hide tag bubbles and tag leader lines in layout and exports" role="menuitem">Hide Tags</button>
       <label class="options-field"><span>Units</span>
@@ -651,10 +740,13 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
       <svg id="gridSvg"></svg>
       <div id="itemsLayer"></div>
       <svg id="overlaySvg"></svg>
+      <svg id="flowAnimSvg" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:215;"></svg>
       <svg id="notesArrowsSvg"></svg>
       <div id="notesTextLayer"></div>
       <div class="canvas-toolbar">
         <button class="ctb-btn" id="snapBtn" title="Snap to grid">⊞ Snap</button>
+        <button class="ctb-btn" id="measureBtn" title="Measure tool — click two points for a dimension, chain by clicking again, Esc to exit">📏 Measure</button>
+        <button class="ctb-btn" id="layersBtn" title="Layers panel — list every object, reorder z-stack, toggle visibility">≣ Layers</button>
         <div class="ctb-sep"></div>
         <span style="font-size:11px;color:var(--muted);font-weight:600;padding:0 2px">Scroll to zoom · Middle-click drag to pan</span>
       </div>
@@ -676,6 +768,12 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
     </div>
   </div>
 
+  <!-- COMPARE: side-by-side canvas (Phase 13 split mode) -->
+  <div id="compareCanvasWrap" style="display:none;position:relative;border-left:2px solid var(--forge-orange);background:var(--forge-cream);overflow:auto;">
+    <div id="compareCanvasHeader" style="position:sticky;top:0;left:0;z-index:5;background:var(--forge-charcoal);color:var(--forge-cream);padding:6px 12px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:8px;border-bottom:2px solid var(--forge-orange);"></div>
+    <div id="compareCanvasHost" style="padding:8px;"></div>
+  </div>
+
   <!-- RIGHT: Properties -->
   <div class="panel" id="propsPanel">
     <div class="panel-hdr"><div class="panel-hdr-title">Properties</div><button class="panel-toggle" id="propsPanelToggle" aria-label="Collapse Properties">▶</button></div>
@@ -684,6 +782,8 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
       <div class="sec-title">Project</div>
       <label class="prop-row"><span class="prop-label">Project Name</span><input id="pName"/></label>
       <label class="prop-row"><span class="prop-label">Quote / Job #</span><input id="pQuote"/></label>
+      <label class="prop-row"><span class="prop-label">Customer</span><input id="pCustomer" placeholder="(optional)"/></label>
+      <label class="prop-row"><span class="prop-label">Prepared by</span><input id="pPreparedBy" placeholder="(optional)"/></label>
       <label class="prop-row"><span class="prop-label">Date</span><input id="pDate"/></label>
       <label class="prop-row"><span class="prop-label">Notes</span><textarea id="pNotes" rows="2"></textarea></label>
       <div id="objProps" class="hidden">
@@ -755,6 +855,18 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
           </select>
         </div>
         <div class="prop-chk hidden" id="lockRow"><input type="checkbox" id="pLock"/> <span>Lock dimensions on canvas</span></div>
+        <div id="throughputProps" class="hidden">
+          <div class="sec-title" style="display:flex;align-items:center;gap:6px;cursor:pointer;" id="throughputSecTitle">
+            <span style="flex:1;">Throughput</span>
+            <span id="throughputCollapseChevron" style="font-size:10px;color:var(--muted);">▸</span>
+          </div>
+          <div id="throughputFields" class="hidden">
+            <label class="prop-row"><span class="prop-label">Speed (FPM)</span><input id="pTpSpeed" type="number" min="0" step="1" placeholder="default"/></label>
+            <label class="prop-row"><span class="prop-label">Case length (in)</span><input id="pTpCaseLen" type="number" min="0" step="0.5" placeholder="default"/></label>
+            <label class="prop-row"><span class="prop-label">Case gap (in)</span><input id="pTpCaseGap" type="number" min="0" step="0.5" placeholder="default"/></label>
+            <div class="dim-display" id="tpEstimate"></div>
+          </div>
+        </div>
         <div id="xferProps" class="hidden">
           <div class="sec-title">Transfer</div>
           <div class="prop-row"><span class="prop-label">Offset on Host</span><input id="pXferOff" type="number" min="0" step="1"/></div>
@@ -785,6 +897,10 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
       <div class="kbd-row"><span>Save project</span><kbd class="kbd-key">Ctrl+S</kbd></div>
       <div class="kbd-row"><span>Export PNG</span><kbd class="kbd-key">Ctrl+Shift+E</kbd></div>
       <div class="kbd-row"><span>Select all</span><kbd class="kbd-key">Ctrl+A</kbd></div>
+      <div class="kbd-row"><span>Group selection</span><kbd class="kbd-key">Ctrl+G</kbd></div>
+      <div class="kbd-row"><span>Ungroup selection</span><kbd class="kbd-key">Ctrl+Shift+G</kbd></div>
+      <div class="kbd-row"><span>Presentation mode</span><kbd class="kbd-key">Shift+P</kbd></div>
+      <div class="kbd-row"><span>Bypass alignment</span><kbd class="kbd-key">Alt</kbd><span style="color:var(--muted);margin-left:6px;">(hold while dragging)</span></div>
       <div class="kbd-row"><span>Undo</span><kbd class="kbd-key">Ctrl+Z</kbd></div>
       <div class="kbd-row"><span>Redo</span><kbd class="kbd-key">Ctrl+Y</kbd></div>
       <div class="kbd-row"><span>Zoom in</span><kbd class="kbd-key">Ctrl++</kbd></div>
@@ -819,6 +935,7 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
 
 <input type="file" id="openFileInput" accept=".flowforge,.omninapkin,.json" hidden/>
 <input type="file" id="custFileInput" accept=".ffcustom,.omnicustom,.json" hidden/>
+<input type="file" id="compareFileInput" accept=".flowforge,.omninapkin,.json" hidden/>
 <a id="dlLink" hidden></a>
 
 <!-- ═══ CUSTOM CONVEYOR EDITOR MODAL ═══ -->
@@ -947,6 +1064,39 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
         <label style="margin-right:14px;"><input type="radio" name="expArea" value="cropped" checked> Cropped (layout)</label>
         <label><input type="radio" name="expArea" value="full"> Full workspace</label>
       </div>
+      <div id="exportPdfOptions" style="margin-top:10px;display:none;">
+        <strong>PDF Options</strong><br>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:4px;"><input type="checkbox" id="expIncludeCover" checked> Include cover page (project summary, stats, notes)</label>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:4px;"><input type="checkbox" id="expTileMode"> Tile across multiple pages (key plan + tiles)</label>
+        <div id="expTileOptions" style="display:none;margin-top:6px;padding-left:22px;display:none;">
+          <div style="display:flex;gap:8px;margin-top:4px;font-size:11px;">
+            <label style="display:flex;flex-direction:column;gap:2px;flex:1;">Page size
+              <select id="expPageSize" style="font-size:11px;">
+                <option value="letter">Letter (8.5×11)</option>
+                <option value="legal">Legal (8.5×14)</option>
+                <option value="tabloid">Tabloid (11×17)</option>
+                <option value="a4">A4 (8.27×11.69)</option>
+                <option value="a3">A3 (11.69×16.54)</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:2px;flex:1;">Orientation
+              <select id="expOrient" style="font-size:11px;">
+                <option value="landscape">Landscape</option>
+                <option value="portrait">Portrait</option>
+              </select>
+            </label>
+          </div>
+          <label style="display:flex;flex-direction:column;gap:2px;font-size:11px;margin-top:6px;">Scale
+            <select id="expScale" style="font-size:11px;">
+              <option value="0.125">1/8" = 1'</option>
+              <option value="0.25" selected>1/4" = 1'</option>
+              <option value="0.5">1/2" = 1'</option>
+              <option value="1">1" = 1'</option>
+              <option value="fit">Fit to 4 pages (auto-scale)</option>
+            </select>
+          </label>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" id="exportCancelBtn">Cancel</button>
@@ -1011,6 +1161,163 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
     </div>
   </div>
 </div>
+
+<div class="modal-overlay hidden" id="compareModal">
+  <div class="modal" style="width:1080px;max-width:96vw;max-height:92vh;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title">Compare Layouts</div>
+      <button class="modal-close" id="compareModalClose">×</button>
+    </div>
+    <div class="modal-body" style="padding:10px 14px;font-size:13px;">
+      <div style="display:flex;gap:12px;align-items:stretch;">
+        <div style="flex:1;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:#fafbfc;">
+          <div style="background:var(--blue-light);padding:6px 10px;font-weight:700;font-size:12px;color:var(--text);" id="compareLeftLabel">Current layout</div>
+          <div id="compareLeftPreview" style="background:var(--forge-cream);min-height:280px;display:flex;align-items:center;justify-content:center;"></div>
+          <div id="compareLeftStats" style="font-size:11px;color:var(--muted);padding:6px 10px;border-top:1px solid var(--border);"></div>
+        </div>
+        <div style="flex:1;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:#fafbfc;">
+          <div style="background:var(--blue-light);padding:6px 10px;font-weight:700;font-size:12px;color:var(--text);" id="compareRightLabel">Comparison layout</div>
+          <div id="compareRightPreview" style="background:var(--forge-cream);min-height:280px;display:flex;align-items:center;justify-content:center;color:var(--muted);">No comparison file loaded yet.</div>
+          <div id="compareRightStats" style="font-size:11px;color:var(--muted);padding:6px 10px;border-top:1px solid var(--border);"></div>
+        </div>
+      </div>
+      <div style="margin-top:10px;padding:10px 14px;background:var(--forge-cream2);border-radius:6px;">
+        <div style="font-weight:800;font-size:11px;color:var(--text);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">Deltas</div>
+        <div id="compareDeltas" style="font-size:12px;color:var(--text);"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="compareLoadBtn">Load comparison file…</button>
+      <button class="btn-primary" id="compareSplitBtn" disabled>Side-by-side mode</button>
+      <button class="btn-cancel" id="compareCancelBtn">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="commentsModal">
+  <div class="modal" style="width:560px;max-height:82vh;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title">Comments</div>
+      <button class="modal-close" id="commentsModalClose">×</button>
+    </div>
+    <div class="modal-body" style="font-size:13px;line-height:1.45;padding:8px 14px;">
+      <div style="display:flex;gap:6px;margin-bottom:10px;">
+        <button class="ctb-btn comment-filter active" data-filter="all">All</button>
+        <button class="ctb-btn comment-filter" data-filter="open">Open</button>
+        <button class="ctb-btn comment-filter" data-filter="resolved">Resolved</button>
+        <div style="flex:1;"></div>
+        <span id="commentsCountText" style="font-size:11px;color:var(--muted);align-self:center;"></span>
+      </div>
+      <div id="commentsList" style="max-height:56vh;overflow-y:auto;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" id="commentsDoneBtn">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="commentPopover">
+  <div class="modal" style="width:420px;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title" id="commentPopoverTitle">Comment</div>
+      <button class="modal-close" id="commentPopoverClose">×</button>
+    </div>
+    <div class="modal-body" style="padding:10px 14px;">
+      <div id="commentPopoverObj" style="font-size:11px;color:var(--muted);margin-bottom:8px;"></div>
+      <div id="commentPopoverThread" style="max-height:40vh;overflow-y:auto;margin-bottom:10px;"></div>
+      <div style="border-top:1px solid var(--border);padding-top:8px;">
+        <label class="prop-row"><span class="prop-label">Author</span><input id="commentAuthorInput" placeholder="(optional)"/></label>
+        <label class="prop-row"><span class="prop-label">Comment</span><textarea id="commentBodyInput" rows="3" placeholder="Write your comment…"></textarea></label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" id="commentPopoverCancel">Cancel</button>
+      <button class="btn-primary" id="commentPopoverSave">Add comment</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="bomEditorModal">
+  <div class="modal" style="width:920px;max-height:88vh;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title">BOM / Quote Editor</div>
+      <button class="modal-close" id="bomEditorClose">×</button>
+    </div>
+    <div class="modal-body" style="font-size:13px;line-height:1.4;padding:8px 14px;">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:8px;font-size:11px;color:var(--muted);">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="bomIncludePricingChk"/> Include pricing columns in exported BOM</label>
+        <label style="display:flex;align-items:center;gap:6px;">Tax % <input id="bomTaxInput" type="number" min="0" step="0.01" style="width:60px;font-size:11px;padding:2px 4px;"/></label>
+        <div style="flex:1;"></div>
+        <div id="bomEditorScope" style="font-weight:700;color:var(--text);"></div>
+      </div>
+      <div style="max-height:60vh;overflow:auto;border:1px solid var(--border);border-radius:6px;">
+        <table id="bomEditorTable" style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead style="background:var(--blue-light);position:sticky;top:0;">
+            <tr style="text-align:left;">
+              <th style="padding:6px 8px;">SKU / Name</th>
+              <th style="padding:6px 8px;text-align:right;">Qty</th>
+              <th style="padding:6px 8px;">Lead time</th>
+              <th style="padding:6px 8px;">Vendor</th>
+              <th class="bom-price-col" style="padding:6px 8px;text-align:right;">List $</th>
+              <th class="bom-price-col" style="padding:6px 8px;text-align:right;">Markup %</th>
+              <th class="bom-price-col" style="padding:6px 8px;text-align:right;">Unit sell</th>
+              <th class="bom-price-col" style="padding:6px 8px;text-align:right;">Extended</th>
+            </tr>
+          </thead>
+          <tbody id="bomEditorBody"></tbody>
+        </table>
+      </div>
+      <div id="bomEditorTotals" style="margin-top:10px;padding:8px 10px;background:var(--blue-light);border-radius:6px;font-weight:700;display:none;align-items:center;gap:14px;">
+        <span style="flex:1;">Subtotal: <span id="bomSubtotal">$0.00</span></span>
+        <span>Tax: <span id="bomTax">$0.00</span></span>
+        <span>Total: <span id="bomTotal" style="color:var(--forge-orange);">$0.00</span></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" id="bomEditorCancel">Cancel</button>
+      <button class="btn-primary" id="bomEditorExport">Export BOM</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="historyModal">
+  <div class="modal" style="width:560px;max-height:82vh;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title">Revision History</div>
+      <button class="modal-close" id="historyModalClose">×</button>
+    </div>
+    <div class="modal-body" style="font-size:13px;line-height:1.5;">
+      <div id="historyEmpty" style="color:var(--muted);padding:12px 4px;">No revisions saved yet. Use 📌 Revision in the topbar to capture a labeled snapshot.</div>
+      <div id="historyList" style="max-height:56vh;overflow-y:auto;"></div>
+      <div id="historyFooterMeta" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" id="historyDoneBtn">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="layersModal">
+  <div class="modal" style="width:480px;max-height:82vh;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title">Layers</div>
+      <button class="modal-close" id="layersModalClose">×</button>
+    </div>
+    <div class="modal-body" style="padding:10px 14px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;color:var(--muted);">
+        <span style="flex:1;">Top of list = top of z-stack. Drag rows to reorder · click row to select · eye toggles visibility.</span>
+        <span id="layersCount" style="font-weight:700;color:var(--text);"></span>
+      </div>
+      <div id="layersList" style="max-height:60vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px;background:#fafbfc;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" id="layersDoneBtn">Done</button>
+    </div>
+  </div>
+</div>
+
+<div id="presentationPill" role="button" tabindex="0" aria-label="Exit presentation mode (Esc)">Presentation — Esc to exit</div>
+<div id="compareBanner" role="button" tabindex="0" aria-label="Exit compare mode (Esc)">⇆ Comparing — Esc to exit</div>
 
 <script>
 'use strict';
@@ -1156,6 +1463,23 @@ const S={
   pendingNoteArrowId:null,
   tagMove:null, // {id, previewX, previewY} while placing a moved tag bubble
   tagAnchorMove:null, // {id, previewX, previewY, startedAt} while placing a tag leader anchor
+  presentationMode:false, // Phase 6 — UI chrome hidden for projector demos. Transient (not persisted).
+  alignmentGuides:[], // Phase 7 — dashed snap guides drawn during drag. Transient.
+  dimensions:[], // Phase 10 — persistent {id, p1:{x,y}, p2:{x,y}} placed by the Measure tool.
+  measureMode:null, // Phase 10 — {points:[{x,y}], dragEndpoint?:{dimId,endpoint}} when active.
+  selDimId:null, // Phase 10 — currently selected dimension id (for Delete).
+  measurePreview:null, // Phase 10 — {x,y,snapFeature?} cursor preview while measuring.
+  showThroughput:false, // Phase 11 — toggle for the cases/hr badge overlay.
+  throughputDefaults:{speedFpm:60,caseLenIn:18,caseGapIn:6}, // Phase 11 — fallback when obj.throughput is missing.
+  revisions:[], // Phase 16 — labeled project-state snapshots {id,label,timestampMs,payload}.
+  bomAnnotations:{}, // Phase 17 — per-BOM-line {leadTime, vendor, listPrice, markupPct} keyed by family+name+BF+shape.
+  bomIncludePricing:false, // Phase 17 — whether the exported HTML carries price columns.
+  bomTaxPct:0, // Phase 17 — global tax % applied to subtotal.
+  comments:[], // Phase 15 — pinned, resolvable per-object comments {id,objectId,author,body,timestampMs,resolved,orphan?}.
+  commentFilter:'open', // Phase 15 — all/open/resolved filter for the global Comments panel.
+  commentAuthor:'', // Phase 15 — last author entered, suggested on the next comment.
+  flowAnimation:{enabled:false,particles:[],lastTick:0,frameHandle:null}, // Phase 18 — animated particles along powered conveyors.
+  compareMode:{enabled:false,payload:null,canvas:null}, // Phase 13 split — read-only side-by-side comparison.
 };
 
 // DOM refs
@@ -1380,6 +1704,72 @@ function getAABB(obj){
   const pts=[rotPt(obj.x,obj.y,cx,cy,obj.rot),rotPt(obj.x+w,obj.y,cx,cy,obj.rot),rotPt(obj.x+w,obj.y+h,cx,cy,obj.rot),rotPt(obj.x,obj.y+h,cx,cy,obj.rot)];
   const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
   return{x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xs)-Math.min(...xs),h:Math.max(...ys)-Math.min(...ys)};
+}
+
+// ── ALIGNMENT GUIDES (Phase 7) ────────────────────────────────────────
+// Figma-style smart guides: during drag, snap the moving group's six
+// AABB axes (left/right/h-center for X, top/bottom/v-center for Y) to
+// matching axes on other on-canvas objects within tolerance.
+// Returns { dx, dy, guides } where the dx/dy include the snap
+// adjustment and guides is a list of SVG line specs to render.
+function computeAlignmentGuides(draggedIds,rawDx,rawDy,origs){
+  if(!Array.isArray(draggedIds)||!draggedIds.length)return{dx:rawDx,dy:rawDy,guides:[]};
+  const tolerance=Math.max(0.5*S.ppi,6/S.zoom);
+  // Group AABB at the proposed (raw) position
+  let gx1=Infinity,gy1=Infinity,gx2=-Infinity,gy2=-Infinity;
+  for(const id of draggedIds){
+    const o=S.objects.find(x=>x.id===id);if(!o)continue;
+    const orig=origs.get(id);if(!orig)continue;
+    const proxy={...o,x:orig.x+rawDx,y:orig.y+rawDy};
+    const a=getAABB(proxy);
+    gx1=Math.min(gx1,a.x);gy1=Math.min(gy1,a.y);
+    gx2=Math.max(gx2,a.x+a.w);gy2=Math.max(gy2,a.y+a.h);
+  }
+  if(!isFinite(gx1))return{dx:rawDx,dy:rawDy,guides:[]};
+  const gHC=(gx1+gx2)/2,gVC=(gy1+gy2)/2;
+  const draggedSet=new Set(draggedIds);
+  const candidates=[];
+  for(const o of S.objects){
+    if(draggedSet.has(o.id))continue;
+    if(o.hidden)continue;
+    if(o.type!=='conveyor'&&o.type!=='obstacle')continue;
+    const a=getAABB(o);
+    candidates.push({x1:a.x,x2:a.x+a.w,hc:a.x+a.w/2,y1:a.y,y2:a.y+a.h,vc:a.y+a.h/2});
+  }
+  // Best X-axis match (snap target value on the X axis; "v" = vertical guide line)
+  let bestX={absD:Infinity,delta:0,target:null,extentY:null};
+  let bestY={absD:Infinity,delta:0,target:null,extentX:null};
+  const tryX=(dragVal,c,targetVal)=>{
+    const d=targetVal-dragVal,ad=Math.abs(d);
+    if(ad>tolerance||ad>=bestX.absD)return;
+    bestX={absD:ad,delta:d,target:targetVal,extentY:[Math.min(gy1,c.y1)+d*0,Math.max(gy2,c.y2)]};
+    bestX.extentY=[Math.min(gy1,c.y1),Math.max(gy2,c.y2)];
+  };
+  const tryY=(dragVal,c,targetVal)=>{
+    const d=targetVal-dragVal,ad=Math.abs(d);
+    if(ad>tolerance||ad>=bestY.absD)return;
+    bestY={absD:ad,delta:d,target:targetVal,extentX:[Math.min(gx1,c.x1),Math.max(gx2,c.x2)]};
+  };
+  for(const c of candidates){
+    // X axes: left, hcenter, right of dragged → left, hcenter, right of candidate
+    for(const dragV of [gx1,gHC,gx2]){
+      for(const tgtV of [c.x1,c.hc,c.x2])tryX(dragV,c,tgtV);
+    }
+    for(const dragV of [gy1,gVC,gy2]){
+      for(const tgtV of [c.y1,c.vc,c.y2])tryY(dragV,c,tgtV);
+    }
+  }
+  const guides=[];
+  let dx=rawDx,dy=rawDy;
+  if(bestX.target!=null){
+    dx=rawDx+bestX.delta;
+    guides.push({axis:'v',x:bestX.target,y1:bestX.extentY[0],y2:bestX.extentY[1]});
+  }
+  if(bestY.target!=null){
+    dy=rawDy+bestY.delta;
+    guides.push({axis:'h',y:bestY.target,x1:bestY.extentX[0],x2:bestY.extentX[1]});
+  }
+  return{dx,dy,guides};
 }
 
 // Transfer geometry
@@ -1608,7 +1998,7 @@ function layerRank(obj){
   return 30;
 }
 function getRenderableObjects(){
-  return [...S.objects].sort((a,b)=>{
+  return [...S.objects].filter(o=>!o.hidden).sort((a,b)=>{
     const z=layerRank(a)-layerRank(b);
     return z||((Number(a?.stackOrder)||0)-(Number(b?.stackOrder)||0))||(a.id||'').localeCompare(b.id||'');
   });
@@ -2365,11 +2755,46 @@ function drawOverlay(){
     OV.appendChild(svgLine(S.snapPrev.moving.x,S.snapPrev.moving.y,S.snapPrev.target.x,S.snapPrev.target.y,'#ff6a18','2'));
     OV.appendChild(svgEl('circle',{cx:S.snapPrev.target.x,cy:S.snapPrev.target.y,r:'7',class:'ep-preview'}));
   }
+  // Alignment guides (Phase 7) — dashed hot-orange edge/center matches
+  // drawn while dragging.
+  if(S.alignmentGuides&&S.alignmentGuides.length){
+    for(const g of S.alignmentGuides){
+      const line=g.axis==='v'
+        ? svgLine(g.x,g.y1,g.x,g.y2,'#ff6a18','1')
+        : svgLine(g.x1,g.y,g.x2,g.y,'#ff6a18','1');
+      line.setAttribute('stroke-dasharray','4 3');
+      line.setAttribute('opacity','0.65');
+      OV.appendChild(line);
+    }
+  }
+  // Dimensions (Phase 10) — drawn beneath labels/tags so they can read on top of them.
+  drawDimensions();
+  // Group bounding boxes (Phase 8) — faint dashed AABB around every
+  // group that has any selected member.
+  const visibleGroups=new Set();
+  for(const id of S.selIds){
+    const o=S.objects.find(x=>x.id===id);
+    if(o&&o.groupId)visibleGroups.add(o.groupId);
+  }
+  for(const gid of visibleGroups){
+    const members=S.objects.filter(o=>o.groupId===gid);
+    if(members.length<2)continue;
+    let x1=Infinity,y1=Infinity,x2=-Infinity,y2=-Infinity;
+    members.forEach(m=>{const a=getAABB(m);x1=Math.min(x1,a.x);y1=Math.min(y1,a.y);x2=Math.max(x2,a.x+a.w);y2=Math.max(y2,a.y+a.h);});
+    if(!isFinite(x1))continue;
+    const pad=6;
+    const rect=svgEl('rect',{x:x1-pad,y:y1-pad,width:(x2-x1)+pad*2,height:(y2-y1)+pad*2,rx:'6',fill:'none',stroke:'#ff6a18','stroke-width':'1.2','stroke-dasharray':'5 4',opacity:'0.55'});
+    OV.appendChild(rect);
+  }
   // Conveyor labels are drawn in world space so their orientation is consistent in the editor and export.
   S.objects.filter(o=>o.type==='conveyor').forEach(addOverlayConveyorInfoLabel);
+  // Phase 11 — throughput badge below the info label on powered conveyors.
+  S.objects.filter(o=>o.type==='conveyor').forEach(addOverlayThroughputBadge);
   // Tags draw above conveyor labels.
   S.objects.filter(o=>o.type==='conveyor'&&!o.isXfer).forEach(addOverlayTag);
   S.objects.filter(o=>o.type==='conveyor'&&!o.isXfer&&!o.isTurntable&&shouldShowInlineBF(o)).forEach(addOverlayBF);
+  // Phase 15 — comment indicator badges on objects with open comments.
+  S.objects.forEach(addOverlayCommentBadge);
 }
 function addOverlayBF(obj){
   if(!obj.bf)return;
@@ -2501,17 +2926,23 @@ function syncDraggedItemVisual(obj){
 // ── CENTRALIZED DRAG CONTROLLER ──
 // This is the key architectural fix. One handler for all placed-object movement.
 function startObjectDrag(e,obj){
+  if(compareModeBlocking())return;
   if(S.placeMode||S.drag)return;
   if(e.button!=null&&e.button!==0)return;
   e.preventDefault();e.stopPropagation();
 
-  // Ctrl/meta + click: toggle this object in the selection. No drag.
+  // Group expansion: if obj is in a group, every selection action
+  // operates on the whole group rather than the single member.
+  const groupTargets=obj.groupId?getGroupMemberIds(obj.groupId):[obj.id];
+
+  // Ctrl/meta + click: toggle this object (or its whole group) in the selection. No drag.
   if(e.ctrlKey||e.metaKey){
-    if(S.selIds.has(obj.id)){
-      S.selIds.delete(obj.id);
-      if(S.selId===obj.id)S.selId=S.selIds.size?[...S.selIds].pop():null;
+    const someIn=groupTargets.some(id=>S.selIds.has(id));
+    if(someIn){
+      groupTargets.forEach(id=>S.selIds.delete(id));
+      if(!S.selIds.has(S.selId))S.selId=S.selIds.size?[...S.selIds].pop():null;
     }else{
-      S.selIds.add(obj.id);
+      groupTargets.forEach(id=>S.selIds.add(id));
       S.selId=obj.id;
     }
     S._suppressClick=Date.now()+180;
@@ -2519,10 +2950,12 @@ function startObjectDrag(e,obj){
     return;
   }
 
-  // Plain click: if the grabbed object isn't in selIds, replace selection.
-  // If it already is, keep the group and promote this to primary (group drag).
+  // Plain click: if the grabbed object isn't in selIds, replace selection
+  // (expanding to its whole group). If it already is, keep the selection
+  // and promote this to primary so the group drags together.
   if(!S.selIds.has(obj.id)){
-    S.selIds.clear();S.selIds.add(obj.id);
+    S.selIds.clear();
+    groupTargets.forEach(id=>S.selIds.add(id));
     S.selId=obj.id;
   }else{
     S.selId=obj.id;
@@ -2579,12 +3012,24 @@ function startObjectDrag(e,obj){
       syncDraggedItemVisual(obj);
       S.snapPrev=null;
     }else{
-      const dx=(ev.clientX-sx)/S.zoom, dy=(ev.clientY-sy)/S.zoom;
+      const rawDx=(ev.clientX-sx)/S.zoom, rawDy=(ev.clientY-sy)/S.zoom;
+      // Alignment guides (Phase 7) — hold Alt to bypass for fine positioning.
+      let dx=rawDx,dy=rawDy;
+      S.alignmentGuides=[];
+      if(!ev.altKey){
+        const r=computeAlignmentGuides(groupIds,rawDx,rawDy,origs);
+        dx=r.dx;dy=r.dy;S.alignmentGuides=r.guides;
+      }
+      const hasXGuide=S.alignmentGuides.some(g=>g.axis==='v');
+      const hasYGuide=S.alignmentGuides.some(g=>g.axis==='h');
       groupIds.forEach(id=>{
         const o=S.objects.find(x=>x.id===id);if(!o)return;
         const orig=origs.get(id);
-        o.x=snapPx(Math.max(0,orig.x+dx));
-        o.y=snapPx(Math.max(0,orig.y+dy));
+        const nx=Math.max(0,orig.x+dx),ny=Math.max(0,orig.y+dy);
+        // Alignment overrides grid snap on the snapped axis so two
+        // aligned-but-non-grid items stay aligned.
+        o.x=hasXGuide?nx:snapPx(nx);
+        o.y=hasYGuide?ny:snapPx(ny);
         syncDraggedItemVisual(o);
       });
       if(groupIds.some(id=>isTCarRail(S.objects.find(x=>x.id===id)))){
@@ -2603,6 +3048,7 @@ function startObjectDrag(e,obj){
     window.removeEventListener('pointerup',up);
     S._suppressClick=Date.now()+180;
     S.drag=null;
+    S.alignmentGuides=[];
     S.xferMountPrev=null;
     document.body.style.userSelect='';document.body.style.cursor='';
     if(!isGroup){
@@ -2700,6 +3146,7 @@ function deactivateLL(id){const o=S.objects.find(x=>x.id===id);if(o){o.llActive=
 
 // Placement mode (click-to-place from library)
 function beginPlacement(spec,source='std',customDef=null){
+  if(compareModeBlocking())return;
   if(customDef&&blockExhaustedCustom(customDef))return;
   clearPlacement();
   const ghost=mkObj(spec,{x:-999,y:-999});
@@ -2805,6 +3252,57 @@ function sel(id,additive=false){
   S.selId=id;
   render();syncProps();
 }
+// ── OBJECT GROUPS (Phase 8) ───────────────────────────────────────────
+// Group membership is a single `groupId` string on each object. Click on
+// any group member expands the selection to all members so the group
+// moves/rotates/duplicates/deletes as one. Ctrl+G assigns a new shared
+// groupId to the current selection; Ctrl+Shift+G removes membership.
+function getGroupMemberIds(groupId){
+  if(!groupId)return[];
+  return S.objects.filter(o=>o.groupId===groupId).map(o=>o.id);
+}
+function expandSelectionToGroups(){
+  const adds=[];
+  for(const id of S.selIds){
+    const o=S.objects.find(x=>x.id===id);
+    if(o&&o.groupId)adds.push(...getGroupMemberIds(o.groupId));
+  }
+  adds.forEach(id=>S.selIds.add(id));
+}
+function groupObjects(ids){
+  if(compareModeBlocking())return false;
+  const list=Array.isArray(ids)?ids:[...ids];
+  if(list.length<2)return false;
+  const gid=uid('grp');
+  list.forEach(id=>{
+    const o=S.objects.find(x=>x.id===id);
+    if(o)o.groupId=gid;
+  });
+  pushHistory();render();syncProps();
+  showToast('Grouped '+list.length+' objects');
+  return true;
+}
+function ungroupObjects(ids){
+  if(compareModeBlocking())return false;
+  const list=Array.isArray(ids)?ids:[...ids];
+  if(!list.length)return false;
+  // Collect all groupIds touched so every member of those groups is
+  // ungrouped (the plan's "removes groupId from all selected" rule —
+  // but selecting one member implicitly selects the whole group, so
+  // the practical effect is whole-group ungrouping).
+  const touched=new Set();
+  list.forEach(id=>{
+    const o=S.objects.find(x=>x.id===id);
+    if(o?.groupId)touched.add(o.groupId);
+  });
+  if(!touched.size)return false;
+  S.objects.forEach(o=>{
+    if(o.groupId&&touched.has(o.groupId))delete o.groupId;
+  });
+  pushHistory();render();syncProps();
+  showToast('Ungrouped');
+  return true;
+}
 function selectAll(){
   S.selIds.clear();
   S.objects.forEach(o=>S.selIds.add(o.id));
@@ -2816,6 +3314,8 @@ function syncProjFields(){
   document.getElementById('pQuote').value=S.proj.quote||'';
   document.getElementById('pDate').value=S.proj.date;
   document.getElementById('pNotes').value=S.proj.notes||'';
+  const cEl=document.getElementById('pCustomer');if(cEl)cEl.value=S.proj.customer||'';
+  const pbEl=document.getElementById('pPreparedBy');if(pbEl)pbEl.value=S.proj.preparedBy||'';
   document.getElementById('tbProj').textContent=S.proj.name||'';
   document.getElementById('tbQuote').textContent=S.proj.quote||'';
   document.getElementById('tbDate').textContent=S.proj.date||'';
@@ -2921,6 +3421,19 @@ function syncProps(){
   document.getElementById('rotRow').classList.remove('hidden');
   document.getElementById('lockRow').classList.toggle('hidden',!isConv);
   document.getElementById('xferProps').classList.toggle('hidden',!obj.isXfer);
+  // Phase 11 — throughput overrides for powered conveyors.
+  const tpProps=document.getElementById('throughputProps');
+  if(tpProps){
+    const show=isPoweredConveyor(obj);
+    tpProps.classList.toggle('hidden',!show);
+    if(show){
+      const t=obj.throughput||{};
+      document.getElementById('pTpSpeed').value=t.speedFpm!=null?t.speedFpm:'';
+      document.getElementById('pTpCaseLen').value=t.caseLenIn!=null?t.caseLenIn:'';
+      document.getElementById('pTpCaseGap').value=t.caseGapIn!=null?t.caseGapIn:'';
+      document.getElementById('tpEstimate').textContent='Est. '+computeThroughput(obj).toLocaleString()+' cases/hr';
+    }
+  }
 
   if(isConv&&!isCurve)setDualBox('pLenFt','pLenIn',obj.length);
   if(!isCurve)setDualBox('pWidFt','pWidIn',obj.width);
@@ -3029,6 +3542,7 @@ function rotateObjectsAsRigidSelection(targets,step=45){
   return true;
 }
 function rotateSelectedObjects(step=45,primary=null){
+  if(compareModeBlocking())return false;
   const base=primary||S.objects.find(o=>o.id===S.selId);
   const targets=getSelectedActionTargets(base);
   if(targets.length>1)return rotateObjectsAsRigidSelection(targets,step);
@@ -3211,6 +3725,7 @@ function updateFromProps(){
 
 // Actions
 function dupSel(){
+  if(compareModeBlocking())return false;
   const primary=S.objects.find(o=>o.id===S.selId);if(!primary)return false;
   const targets=getSelectedActionTargets(primary);
   const customCounts=new Map();
@@ -3227,12 +3742,19 @@ function dupSel(){
   }
   const copies=[];
   const idMap=new Map();
+  // Phase 8 — remap original groupIds → new groupIds so duplicates form
+  // their own group(s), independent of the originals.
+  const groupIdMap=new Map();
   targets.forEach(target=>{
     const c=clone(target);
     const oldId=target.id;
     c.id=uid('c');
     idMap.set(oldId,c.id);
     c.x+=24;c.y+=24;c.rot=constrainRotForObject(c,c.rot);c.stackOrder=(Number(target.stackOrder)||0)+1;
+    if(c.groupId){
+      if(!groupIdMap.has(c.groupId))groupIdMap.set(c.groupId,uid('grp'));
+      c.groupId=groupIdMap.get(c.groupId);
+    }
     copies.push(c);
   });
   copies.forEach(c=>{
@@ -3260,6 +3782,7 @@ function dupSel(){
   return true;
 }
 function delSel(){
+  if(compareModeBlocking())return;
   if(!S.selIds.size&&!S.selId)return;
   const idsToDelete=S.selIds.size?[...S.selIds]:[S.selId];
   idsToDelete.forEach(id=>{
@@ -3267,8 +3790,12 @@ function delSel(){
     S.objects.forEach(o=>{if(isTCarCar(o)&&o.railId===id)clearTCarAttachment(o);});
     S.objects=S.objects.filter(o=>o.id!==id);
   });
+  // Phase 15 — auto-resolve any comments on deleted objects (orphan
+  // flagged so undo can restore them cleanly).
+  autoResolveCommentsForDeletedObjects(idsToDelete);
   S.selId=null;S.selIds.clear();
   reconcileCustomQuantities();render();syncProps();renderCustLib();
+  if(typeof updateCommentsBadge==='function')updateCommentsBadge();
 }
 
 // ══════════════════════════════════════════════════
@@ -4608,68 +5135,352 @@ function expPng(){
   });
 }
 function buildPdfBlobFromCanvas(canvas){
-  if(!canvas||canvas.width<10||canvas.height<10)throw new Error('Invalid export canvas size');
-  const jpegDataUrl=canvas.toDataURL('image/jpeg',0.92);
-  const base64=jpegDataUrl.split(',')[1];
-  const binary=atob(base64);
-  const imgBytes=new Uint8Array(binary.length);
-  for(let i=0;i<binary.length;i++)imgBytes[i]=binary.charCodeAt(i);
-
-  const pageW=792; // 11in * 72
-  const pageH=612; // 8.5in * 72
-  const margin=18;
-  const availW=pageW-margin*2;
-  const availH=pageH-margin*2;
-  const scale=Math.min(availW/canvas.width,availH/canvas.height);
-  const drawW=Math.round(canvas.width*scale*1000)/1000;
-  const drawH=Math.round(canvas.height*scale*1000)/1000;
-  const drawX=Math.round((pageW-drawW)/2*1000)/1000;
-  const drawY=Math.round((pageH-drawH)/2*1000)/1000;
-
+  return buildPdfBlobFromCanvases([canvas]);
+}
+function buildPdfBlobFromCanvases(canvases){
+  // Multi-page PDF builder — each canvas becomes one page, fit-to-box
+  // with margin preserved. Used by Phase 12 cover page (cover, layout)
+  // and Phase 14 print tiling (key plan + N tiles).
+  if(!Array.isArray(canvases)||!canvases.length)throw new Error('No canvases for PDF');
+  for(const c of canvases){
+    if(!c||c.width<10||c.height<10)throw new Error('Invalid export canvas size');
+  }
+  const pageW=792,pageH=612,margin=18;
+  const availW=pageW-margin*2,availH=pageH-margin*2;
   const enc=new TextEncoder();
   const parts=[];
-  const offsets=[]; let pos=0;
+  const offsets=[];let pos=0;
   const pushPart=part=>{
     const chunk=typeof part==='string'?enc.encode(part):part;
-    parts.push(chunk); pos+=chunk.length;
+    parts.push(chunk);pos+=chunk.length;
   };
-
   pushPart('%PDF-1.4\n%ÿÿÿÿ\n');
-  const addObj=(id,body)=>{
-    offsets[id]=pos;
-    pushPart(`${id} 0 obj\n`);
-    pushPart(body);
-    pushPart('\nendobj\n');
-  };
-  const startStreamObj=(id,dict)=>{
-    offsets[id]=pos;
-    pushPart(`${id} 0 obj\n`);
-    pushPart(dict);
-    pushPart('\nstream\n');
-  };
+  const addObj=(id,body)=>{offsets[id]=pos;pushPart(`${id} 0 obj\n`);pushPart(body);pushPart('\nendobj\n');};
+  const startStreamObj=(id,dict)=>{offsets[id]=pos;pushPart(`${id} 0 obj\n`);pushPart(dict);pushPart('\nstream\n');};
   const endStreamObj=()=>pushPart('\nendstream\nendobj\n');
-
+  // Object layout:
+  // 1 = Catalog, 2 = Pages root, then per-page (page_obj, image_obj, content_obj).
+  const pageCount=canvases.length;
+  // Object ids: 1 catalog, 2 pages, then for page i: 3+i*3 = page, 4+i*3 = image, 5+i*3 = content (i starts at 0)
+  const pageIds=[];for(let i=0;i<pageCount;i++)pageIds.push(3+i*3);
   addObj(1,'<< /Type /Catalog /Pages 2 0 R >>');
-  addObj(2,'<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-  addObj(3,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
-
-  startStreamObj(4,`<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imgBytes.length} >>`);
-  pushPart(imgBytes);
-  endStreamObj();
-
-  const content=`q\n${drawW} 0 0 ${drawH} ${drawX} ${drawY} cm\n/Im0 Do\nQ`;
-  const contentBytes=enc.encode(content);
-  startStreamObj(5,`<< /Length ${contentBytes.length} >>`);
-  pushPart(contentBytes);
-  endStreamObj();
-
+  addObj(2,`<< /Type /Pages /Kids [${pageIds.map(id=>`${id} 0 R`).join(' ')}] /Count ${pageCount} >>`);
+  for(let i=0;i<pageCount;i++){
+    const canvas=canvases[i];
+    const jpegDataUrl=canvas.toDataURL('image/jpeg',0.92);
+    const base64=jpegDataUrl.split(',')[1];
+    const binary=atob(base64);
+    const imgBytes=new Uint8Array(binary.length);
+    for(let j=0;j<binary.length;j++)imgBytes[j]=binary.charCodeAt(j);
+    const scale=Math.min(availW/canvas.width,availH/canvas.height);
+    const drawW=Math.round(canvas.width*scale*1000)/1000;
+    const drawH=Math.round(canvas.height*scale*1000)/1000;
+    const drawX=Math.round((pageW-drawW)/2*1000)/1000;
+    const drawY=Math.round((pageH-drawH)/2*1000)/1000;
+    const pageId=3+i*3,imgId=4+i*3,contentId=5+i*3;
+    addObj(pageId,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Resources << /XObject << /Im0 ${imgId} 0 R >> >> /Contents ${contentId} 0 R >>`);
+    startStreamObj(imgId,`<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imgBytes.length} >>`);
+    pushPart(imgBytes);
+    endStreamObj();
+    const content=`q\n${drawW} 0 0 ${drawH} ${drawX} ${drawY} cm\n/Im0 Do\nQ`;
+    const contentBytes=enc.encode(content);
+    startStreamObj(contentId,`<< /Length ${contentBytes.length} >>`);
+    pushPart(contentBytes);
+    endStreamObj();
+  }
   const xrefPos=pos;
-  const count=6;
-  pushPart(`xref\n0 ${count}\n`);
+  const objCount=2+pageCount*3+1;
+  pushPart(`xref\n0 ${objCount}\n`);
   pushPart('0000000000 65535 f \n');
-  for(let i=1;i<count;i++)pushPart(`${String(offsets[i]||0).padStart(10,'0')} 00000 n \n`);
-  pushPart(`trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`);
+  for(let i=1;i<objCount;i++)pushPart(`${String(offsets[i]||0).padStart(10,'0')} 00000 n \n`);
+  pushPart(`trailer\n<< /Size ${objCount} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`);
   return new Blob(parts,{type:'application/pdf'});
+}
+
+// ── PRINT TILING (Phase 14) ───────────────────────────────────────────
+// Multi-page tiled PDF export. A "key plan" page shows the whole
+// layout at fit-to-page scale with tile boundaries overlaid; each
+// subsequent page shows one tile at the requested print scale with
+// registration marks in the corners.
+const PAGE_SIZES_IN={letter:[8.5,11],legal:[8.5,14],tabloid:[11,17],a4:[8.27,11.69],a3:[11.69,16.54]};
+function pageSizePts(name,orient){
+  const [w,h]=PAGE_SIZES_IN[name]||PAGE_SIZES_IN.letter;
+  const wp=w*72,hp=h*72;
+  return orient==='landscape'?[hp,wp]:[wp,hp];
+}
+function getLayoutWorldBBoxInches(){
+  const boxes=getExportOccupiedBoxes();
+  if(!boxes.length){
+    // Fallback: full workspace.
+    return{x:0,y:0,w:(WS?.offsetWidth||1400)/S.ppi,h:(WS?.offsetHeight||860)/S.ppi};
+  }
+  let x1=Infinity,y1=Infinity,x2=-Infinity,y2=-Infinity;
+  for(const b of boxes){
+    x1=Math.min(x1,b.x);y1=Math.min(y1,b.y);
+    x2=Math.max(x2,b.x+b.w);y2=Math.max(y2,b.y+b.h);
+  }
+  const pad=12; // half-inch padding in pixels (12px at ppi=24 -> 0.5in)
+  return{x:(x1-pad)/S.ppi,y:(y1-pad)/S.ppi,w:(x2-x1+pad*2)/S.ppi,h:(y2-y1+pad*2)/S.ppi};
+}
+function buildTilingPages(opts){
+  // opts: {pageSize, orient, scaleStr}
+  // Returns [keyPlan, tile1, tile2, ...]. Reuses buildCanvas for the
+  // source layout image, then crops sub-rects per tile.
+  const [pageW_pt,pageH_pt]=pageSizePts(opts.pageSize,opts.orient);
+  const margin_pt=18;
+  const printW_pt=pageW_pt-margin_pt*2;
+  const printH_pt=pageH_pt-margin_pt*2;
+  const printW_in=printW_pt/72;
+  const printH_in=printH_pt/72;
+  const worldBBox=getLayoutWorldBBoxInches();
+  let scale;
+  if(opts.scaleStr==='fit'){
+    const fitScale=Math.min(printW_in/(worldBBox.w/12),printH_in/(worldBBox.h/12));
+    scale=fitScale*0.7;
+  }else{
+    scale=Number(opts.scaleStr);
+  }
+  const tileFtW=printW_in/scale;
+  const tileFtH=printH_in/scale;
+  const worldFtW=worldBBox.w/12;
+  const worldFtH=worldBBox.h/12;
+  const cols=Math.max(1,Math.ceil(worldFtW/tileFtW));
+  const rows=Math.max(1,Math.ceil(worldFtH/tileFtH));
+  const totalTiles=cols*rows;
+  // Source: the same cropped buildCanvas the layout export uses. It
+  // already covers exactly the occupied content with reasonable
+  // padding and renders at 2x scale.
+  const exportState=getCroppedExportState();
+  const worldCanvas=buildCanvas(exportState);
+  // worldCanvas dimensions correspond to exportState.contentW × scale
+  // (the buildCanvas internal 2x scale is already applied). We map
+  // (world-pixel x, y) to canvas pixels via:
+  //   canvasX = (worldX - exportState.minX) * (worldCanvas.width / exportState.contentW)
+  // exportState.contentW is in world-pixels.
+  const pxPerWorldPx_W=worldCanvas.width/exportState.contentW;
+  const pxPerWorldPx_H=worldCanvas.height/exportState.contentH;
+  // Build key plan: page-sized canvas with worldCanvas drawn fit-to-page
+  // and tile boundary lines overlaid.
+  const pages=[];
+  const KP_RES=2; // pixels per pt on paper for crispness
+  const kpW=Math.round(pageW_pt*KP_RES),kpH=Math.round(pageH_pt*KP_RES);
+  const kp=document.createElement('canvas');kp.width=kpW;kp.height=kpH;
+  const kctx=kp.getContext('2d');
+  kctx.fillStyle='#fff';kctx.fillRect(0,0,kpW,kpH);
+  // Compute fit-to-page draw rect inside the printable area
+  const kpScale=Math.min(printW_pt/worldCanvas.width,printH_pt/worldCanvas.height)*KP_RES;
+  const drawW=worldCanvas.width*kpScale,drawH=worldCanvas.height*kpScale;
+  const drawX=(kpW-drawW)/2,drawY=(kpH-drawH)/2;
+  kctx.drawImage(worldCanvas,drawX,drawY,drawW,drawH);
+  // Header
+  kctx.fillStyle='#2a2f36';kctx.font=`bold ${14*KP_RES}px Arial`;kctx.textAlign='left';kctx.textBaseline='top';
+  kctx.fillText('KEY PLAN',margin_pt*KP_RES,margin_pt*KP_RES*0.4);
+  kctx.font=`${10*KP_RES}px Arial`;kctx.fillStyle='#6b6f78';
+  kctx.fillText(`${S.proj.name||'FlowForge'} — ${cols}×${rows} = ${totalTiles} tile${totalTiles===1?'':'s'} @ ${opts.scaleStr==='fit'?'fit':opts.scaleStr+'" = 1\''}`,margin_pt*KP_RES,margin_pt*KP_RES*0.4+18*KP_RES);
+  // Tile grid overlay — tile size in worldCanvas-pixels then scaled to
+  // the key-plan draw rect.
+  const tileWorldPxW=tileFtW*12*S.ppi;
+  const tileWorldPxH=tileFtH*12*S.ppi;
+  const tileKpW=tileWorldPxW*pxPerWorldPx_W*kpScale;
+  const tileKpH=tileWorldPxH*pxPerWorldPx_H*kpScale;
+  kctx.strokeStyle='#ff6a18';kctx.lineWidth=1.6*KP_RES;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const tx=drawX+c*tileKpW;
+      const ty=drawY+r*tileKpH;
+      const tw=Math.min(drawX+drawW-tx,tileKpW);
+      const th=Math.min(drawY+drawH-ty,tileKpH);
+      kctx.strokeRect(tx,ty,tw,th);
+      kctx.fillStyle='rgba(255,106,24,0.85)';kctx.font=`bold ${10*KP_RES}px Arial`;kctx.textAlign='left';kctx.textBaseline='top';
+      const label=String.fromCharCode(65+r)+(c+1);
+      kctx.fillText(label,tx+4*KP_RES,ty+4*KP_RES);
+    }
+  }
+  pages.push(kp);
+  // Build each tile canvas
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const tile=document.createElement('canvas');tile.width=kpW;tile.height=kpH;
+      const tctx=tile.getContext('2d');
+      tctx.fillStyle='#fff';tctx.fillRect(0,0,kpW,kpH);
+      // Source rect in worldCanvas pixel coords:
+      // tile spans (tileFtW*12) world-inches = (tileFtW*12*S.ppi)
+      // world-pixels of width. Convert to worldCanvas pixels via the
+      // pxPerWorldPx_W factor.
+      const tileWorldPxW=tileFtW*12*S.ppi;
+      const tileWorldPxH=tileFtH*12*S.ppi;
+      const srcX=Math.round(c*tileWorldPxW*pxPerWorldPx_W);
+      const srcY=Math.round(r*tileWorldPxH*pxPerWorldPx_H);
+      const srcW=Math.min(worldCanvas.width-srcX,Math.round(tileWorldPxW*pxPerWorldPx_W));
+      const srcH=Math.min(worldCanvas.height-srcY,Math.round(tileWorldPxH*pxPerWorldPx_H));
+      // Dest rect (1 paper inch = 72 pt = scale * 12 world inches)
+      // The tile should fill (printW_pt × srcW/srcMax) … simpler: fit srcW×srcH to printable area proportionally.
+      const tileScale=Math.min(printW_pt/srcW,printH_pt/srcH)*KP_RES;
+      const dW=srcW*tileScale,dH=srcH*tileScale;
+      const dX=(kpW-dW)/2,dY=(kpH-dH)/2;
+      tctx.drawImage(worldCanvas,srcX,srcY,srcW,srcH,dX,dY,dW,dH);
+      // Registration marks in corners
+      tctx.strokeStyle='#2a2f36';tctx.lineWidth=1.2*KP_RES;
+      const reg=10*KP_RES;
+      const corners=[[dX,dY],[dX+dW,dY],[dX,dY+dH],[dX+dW,dY+dH]];
+      corners.forEach(([x,y])=>{
+        tctx.beginPath();tctx.moveTo(x-reg,y);tctx.lineTo(x+reg,y);
+        tctx.moveTo(x,y-reg);tctx.lineTo(x,y+reg);tctx.stroke();
+      });
+      // Tile label
+      const label=String.fromCharCode(65+r)+(c+1);
+      tctx.fillStyle='#ff6a18';tctx.font=`bold ${24*KP_RES}px Arial`;tctx.textAlign='right';tctx.textBaseline='bottom';
+      tctx.fillText('TILE '+label,kpW-margin_pt*KP_RES,kpH-margin_pt*KP_RES);
+      // Project meta in top-left
+      tctx.fillStyle='#6b6f78';tctx.font=`${10*KP_RES}px Arial`;tctx.textAlign='left';tctx.textBaseline='top';
+      tctx.fillText(`${S.proj.name||'FlowForge'} · ${label} of ${String.fromCharCode(65+rows-1)}${cols}`,margin_pt*KP_RES,margin_pt*KP_RES*0.4);
+      pages.push(tile);
+    }
+  }
+  return pages;
+}
+
+// ── PDF COVER PAGE (Phase 12) ─────────────────────────────────────────
+function computeProjectStats(){
+  const objs=S.objects.filter(o=>o.type==='conveyor');
+  const conveyors=objs.filter(o=>!o.isXfer&&!o.isTurntable&&o.family!=='tcar-rail'&&o.family!=='tcar-car');
+  const totalLinFt=conveyors.reduce((sum,o)=>{
+    if(o.isCurve){
+      // Curve arc length ≈ avg radius × angle (in radians)
+      const r=((o.iR||0)+(o.oR||0))/2;
+      const a=(o.cAng||90)*Math.PI/180;
+      return sum+(r*a)/12;
+    }
+    return sum+(o.length||0)/12;
+  },0);
+  const vendorOmni=conveyors.filter(o=>o.vendor!=='nor').length;
+  const vendorNor=conveyors.filter(o=>o.vendor==='nor').length;
+  const tt=objs.filter(o=>o.isTurntable).length;
+  const xf=objs.filter(o=>o.isXfer).length;
+  const tcars=objs.filter(o=>o.family==='tcar-car').length;
+  return{conveyorCount:conveyors.length,totalLinFt,vendorOmni,vendorNor,turntables:tt,transfers:xf,tcars};
+}
+function buildCoverCanvas(layoutCanvas){
+  // Match the layout canvas dimensions so PDF page layout is consistent.
+  const W=layoutCanvas?.width||1700;
+  const H=layoutCanvas?.height||1100;
+  const c=document.createElement('canvas');
+  c.width=W;c.height=H;
+  const ctx=c.getContext('2d');
+  // Cream background
+  ctx.fillStyle='#f5efde';
+  ctx.fillRect(0,0,W,H);
+  // Charcoal top banner with FlowForge wordmark
+  const bannerH=Math.round(H*0.14);
+  ctx.fillStyle='#2a2f36';
+  ctx.fillRect(0,0,W,bannerH);
+  // Wordmark split: Flow (cream) + Forge (orange)
+  const wmFs=Math.round(bannerH*0.42);
+  ctx.font=`800 ${wmFs}px Arial`;
+  ctx.textBaseline='middle';
+  ctx.fillStyle='#f5efde';
+  ctx.fillText('Flow',60,bannerH/2);
+  const flowW=ctx.measureText('Flow').width;
+  ctx.fillStyle='#ff6a18';
+  ctx.fillText('Forge',60+flowW,bannerH/2);
+  // Sub-tag
+  ctx.font=`600 ${Math.round(bannerH*0.18)}px Arial`;
+  ctx.fillStyle='rgba(245,239,222,0.7)';
+  ctx.fillText('Conveyor Layout — Project Summary',60,bannerH/2+wmFs*0.55);
+  // Hot-orange accent stripe under banner
+  ctx.fillStyle='#ff6a18';
+  ctx.fillRect(0,bannerH,W,4);
+  // Project name (large, centered)
+  const nameY=bannerH+Math.round(H*0.10);
+  ctx.fillStyle='#2a2f36';
+  ctx.font=`800 ${Math.round(H*0.06)}px Arial`;
+  ctx.textAlign='center';
+  ctx.textBaseline='alphabetic';
+  ctx.fillText(S.proj.name||'(untitled project)',W/2,nameY);
+  // Metadata grid
+  const metaTop=nameY+Math.round(H*0.07);
+  const metaFs=Math.round(H*0.022);
+  const labelFs=Math.round(H*0.013);
+  const colW=Math.round(W*0.22);
+  const cols=[
+    {label:'QUOTE / JOB',value:S.proj.quote||'—'},
+    {label:'DATE',value:S.proj.date||'—'},
+    {label:'CUSTOMER',value:S.proj.customer||'—'},
+    {label:'PREPARED BY',value:S.proj.preparedBy||'—'},
+  ];
+  ctx.textAlign='left';
+  const metaStartX=Math.round((W-colW*4)/2);
+  cols.forEach((col,i)=>{
+    const x=metaStartX+i*colW;
+    ctx.fillStyle='#6b6f78';
+    ctx.font=`700 ${labelFs}px Arial`;
+    ctx.fillText(col.label,x,metaTop);
+    ctx.fillStyle='#2a2f36';
+    ctx.font=`600 ${metaFs}px Arial`;
+    ctx.fillText(String(col.value).slice(0,32),x,metaTop+labelFs*2);
+  });
+  // Summary stats
+  const stats=computeProjectStats();
+  const statsTop=metaTop+Math.round(H*0.10);
+  ctx.font=`800 ${Math.round(H*0.018)}px Arial`;
+  ctx.fillStyle='#2a2f36';
+  ctx.textAlign='left';
+  ctx.fillText('LAYOUT SUMMARY',metaStartX,statsTop);
+  ctx.fillStyle='#ff6a18';
+  ctx.fillRect(metaStartX,statsTop+4,Math.round(W*0.05),2);
+  const statRows=[
+    ['Total conveyor segments',stats.conveyorCount],
+    ['Total linear feet',`${stats.totalLinFt.toFixed(1)} ft`],
+    ['Conveyor vendor',stats.vendorOmni],
+    ['Powered Roller vendor',stats.vendorNor],
+    ['Turntables',stats.turntables],
+    ['Transfers',stats.transfers],
+    ['T-Cars',stats.tcars],
+  ];
+  const statRowFs=Math.round(H*0.02);
+  statRows.forEach((row,i)=>{
+    const y=statsTop+Math.round(H*0.04)+i*Math.round(statRowFs*1.6);
+    ctx.fillStyle='#2a2f36';
+    ctx.font=`500 ${statRowFs}px Arial`;
+    ctx.fillText(row[0],metaStartX,y);
+    ctx.font=`800 ${statRowFs}px Arial`;
+    ctx.textAlign='right';
+    ctx.fillText(String(row[1]),metaStartX+Math.round(W*0.30),y);
+    ctx.textAlign='left';
+  });
+  // Notes block (right side of stats)
+  if(S.proj.notes){
+    const notesX=Math.round(W*0.55);
+    const notesW=W-notesX-metaStartX;
+    ctx.font=`800 ${Math.round(H*0.018)}px Arial`;
+    ctx.fillStyle='#2a2f36';
+    ctx.fillText('PROJECT NOTES',notesX,statsTop);
+    ctx.fillStyle='#ff6a18';
+    ctx.fillRect(notesX,statsTop+4,Math.round(W*0.05),2);
+    ctx.fillStyle='#2a2f36';
+    ctx.font=`400 ${statRowFs}px Arial`;
+    const lines=wrapText(ctx,S.proj.notes,notesW);
+    lines.slice(0,18).forEach((ln,i)=>{
+      ctx.fillText(ln,notesX,statsTop+Math.round(H*0.04)+i*Math.round(statRowFs*1.4));
+    });
+  }
+  // Footer
+  ctx.font=`600 ${Math.round(H*0.014)}px Arial`;
+  ctx.fillStyle='#6b6f78';
+  ctx.textAlign='center';
+  ctx.fillText('Generated by FlowForge · '+new Date().toLocaleDateString(),W/2,H-20);
+  return c;
+}
+function wrapText(ctx,text,maxW){
+  const words=String(text||'').split(/\s+/);
+  const lines=[];let cur='';
+  for(const w of words){
+    const test=cur?cur+' '+w:w;
+    if(ctx.measureText(test).width>maxW&&cur){lines.push(cur);cur=w;}
+    else cur=test;
+  }
+  if(cur)lines.push(cur);
+  return lines;
 }
 function expPdf(){
   askFileName('Export PDF',defaultFileName('pdf'),'pdf',name=>{
@@ -4684,22 +5495,23 @@ function expPdf(){
   });
 }
 
-function exportBOM(){
-  reconcileCustomQuantities();
+function bomLineKey(row){
+  // Stable key the user can identify across project edits. Keeps the
+  // annotation attached even as objects move around the canvas.
+  return [row.family,row.name,row.bf||'',row.length||'',row.width||'',row.type||''].join('|');
+}
+function consolidateBOMRows(useFullQuote){
   const placedConveyors=S.objects.filter(o=>o.type==='conveyor');
-  const hasCustoms=Array.isArray(S.customs)&&S.customs.length>0;
-  if(!placedConveyors.length&&!hasCustoms){alert('No conveyors or custom quote items available for BOM export.');return;}
-  const useFullQuote=hasCustoms&&confirm('Export the FULL imported/custom quote BOM?\n\nOK = full custom quote quantities\nCancel = placed canvas items only');
   const conveyors=useFullQuote
     ?S.customs.map(def=>({...def,type:'conveyor',name:def.customName||def.name,length:def.length||def.dL,width:def.width||def.dW,_bomQty:Number(def.qty||1),_bomPlaced:Number(def.placed||0),_bomRemaining:Number(def.remaining||0)}))
     :placedConveyors;
-  if(!conveyors.length){alert('No placed conveyors on canvas.');return;}
   const groups={};
   conveyors.forEach(obj=>{
     const key=`${obj.family}|${obj.length||''}|${obj.width||''}|${obj.bf||''}|${obj.isCurve?obj.cAng:''}|${obj.isXfer?'x':''}|${obj.isTurntable?'t':''}`;
     if(!groups[key]){
       groups[key]={
         tag:obj.tag||'',
+        rawFamily:obj.family||'',
         family:(obj.family||'').replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
         name:obj.name||obj.family,
         vendor:obj.vendor==='nor'?'Powered Roller 24V':'Conveyor',
@@ -4714,7 +5526,20 @@ function exportBOM(){
     groups[key].qty+=(obj._bomQty||1);
     if(obj._bomQty){groups[key].placed=(groups[key].placed||0)+obj._bomPlaced;groups[key].remaining=(groups[key].remaining||0)+obj._bomRemaining;}
   });
-  const rows=Object.values(groups).sort((a,b)=>(a.vendor+a.family+a.name).localeCompare(b.vendor+b.family+b.name));
+  return Object.values(groups).sort((a,b)=>(a.vendor+a.family+a.name).localeCompare(b.vendor+b.family+b.name));
+}
+function exportBOM(){
+  reconcileCustomQuantities();
+  const placedConveyors=S.objects.filter(o=>o.type==='conveyor');
+  const hasCustoms=Array.isArray(S.customs)&&S.customs.length>0;
+  if(!placedConveyors.length&&!hasCustoms){alert('No conveyors or custom quote items available for BOM export.');return;}
+  const useFullQuote=hasCustoms&&confirm('Export the FULL imported/custom quote BOM?\n\nOK = full custom quote quantities\nCancel = placed canvas items only');
+  const rows=consolidateBOMRows(useFullQuote);
+  if(!rows.length){alert('No placed conveyors on canvas.');return;}
+  // Phase 17 — open the BOM Editor instead of exporting directly.
+  openBomEditor({rows,useFullQuote});
+}
+function exportBOMHTML(rows,useFullQuote){
   const totalUnits=rows.reduce((s,r)=>s+r.qty,0);
   const totalPlaced=rows.reduce((s,r)=>s+(r.placed||0),0);
   const totalRemaining=rows.reduce((s,r)=>s+(r.remaining||0),0);
@@ -4725,19 +5550,44 @@ function exportBOM(){
   const projectQuote=esc(S.proj.quote||'');
   const projectDate=esc(S.proj.date||today);
   const projectNotes=esc(S.proj.notes||'');
-  const tableBody=rows.map((r,i)=>`
+  const includePricing=!!S.bomIncludePricing;
+  let grandSubtotal=0;
+  const tableBody=rows.map((r,i)=>{
+    const ann=S.bomAnnotations[bomLineKey(r)]||{};
+    const leadTime=ann.leadTime||'';
+    const annVendor=ann.vendor||r.vendor;
+    const listPrice=Number(ann.listPrice)||0;
+    const markupPct=Number(ann.markupPct)||0;
+    const unitSell=listPrice*(1+markupPct/100);
+    const extended=unitSell*r.qty;
+    grandSubtotal+=extended;
+    const fmtCur=v=>v?'$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):'<span class="muted">—</span>';
+    return`
       <tr>
         <td class="c-num">${i+1}</td>
         <td>${r.tag?`<span class="pill pill-${esc(r.tag).toLowerCase().replace(/[^a-z0-9]/g,'')||'tag'}">${esc(r.tag)}</span>`:'<span class="muted">—</span>'}</td>
         <td><strong>${esc(r.name)}</strong><div class="sub">${esc(r.family)}</div></td>
         <td>${esc(r.type)}</td>
-        <td>${esc(r.vendor)}</td>
+        <td>${esc(annVendor)}</td>
         <td class="c-num">${r.length||'<span class="muted">—</span>'}</td>
         <td class="c-num">${r.width||'<span class="muted">—</span>'}</td>
         <td class="c-num">${r.bf||'<span class="muted">—</span>'}</td>
         <td class="c-num">${r.cap?`${esc(r.cap)} lb`:'<span class="muted">—</span>'}</td>
+        <td>${esc(leadTime)||'<span class="muted">—</span>'}</td>
         <td class="c-qty">${r.qty}</td>
-      </tr>`).join('');
+        ${includePricing?`<td class="c-num">${fmtCur(listPrice)}</td><td class="c-num">${markupPct?markupPct.toFixed(1)+'%':'<span class="muted">—</span>'}</td><td class="c-num">${fmtCur(unitSell)}</td><td class="c-num"><strong>${fmtCur(extended)}</strong></td>`:''}
+      </tr>`;
+  }).join('');
+  const taxPct=Number(S.bomTaxPct)||0;
+  const tax=grandSubtotal*taxPct/100;
+  const grandTotal=grandSubtotal+tax;
+  const pricingHeaderCells=includePricing?`<th class="c-num">List $</th><th class="c-num">Markup %</th><th class="c-num">Unit Sell</th><th class="c-num">Extended</th>`:'';
+  const pricingFooter=includePricing?`
+  <div class="notes" style="background:#fffbf3;border-top:none;display:flex;gap:20px;justify-content:flex-end;font-size:14px;">
+    <div><span class="lbl">Subtotal</span> <strong>$${grandSubtotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></div>
+    ${taxPct?`<div><span class="lbl">Tax (${taxPct}%)</span> <strong>$${tax.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></div>`:''}
+    <div style="color:var(--accent);font-size:16px;"><span class="lbl">Total</span> <strong>$${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></div>
+  </div>`:'';
   const html=`<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"/>
@@ -4805,12 +5655,15 @@ function exportBOM(){
       <tr>
         <th>#</th><th>Tag</th><th>Item</th><th>Type</th><th>Vendor</th>
         <th class="c-num">Length (in)</th><th class="c-num">Width (in)</th><th class="c-num">BF (in)</th><th class="c-num">Capacity</th>
+        <th>Lead Time</th>
         <th class="c-qty">Qty</th>
+        ${pricingHeaderCells}
       </tr>
     </thead>
     <tbody>${tableBody}
     </tbody>
   </table>
+  ${pricingFooter}
   ${projectNotes?`<div class="notes"><div class="lbl">Project Notes</div>${projectNotes.replace(/\n/g,'<br>')}</div>`:''}
   <footer>Generated by FlowForge · ${esc(today)}</footer>
 </div>
@@ -4820,6 +5673,121 @@ function exportBOM(){
     dl(new Blob([html],{type:'text/html'}),name);
     showToast(`BOM exported — ${rows.length} line(s), ${totalUnits} unit(s)`);
   });
+}
+
+// ── BOM EDITOR (Phase 17) ─────────────────────────────────────────────
+// Annotation-aware quote editor. Opens before BOM export so the user
+// can review consolidated lines, fill in lead time / vendor / list
+// price / markup, and decide whether to include pricing in the
+// exported HTML. Annotations are keyed by family+name+BF+shape so
+// they persist across object edits.
+let _bomEditorContext=null;
+function openBomEditor(ctx){
+  _bomEditorContext=ctx;
+  document.getElementById('bomEditorModal').classList.remove('hidden');
+  document.getElementById('bomEditorScope').textContent=ctx.useFullQuote?'Full Imported / Custom Quote':'Placed Canvas Items Only';
+  document.getElementById('bomIncludePricingChk').checked=!!S.bomIncludePricing;
+  document.getElementById('bomTaxInput').value=S.bomTaxPct||0;
+  renderBomEditor();
+}
+function closeBomEditor(){
+  document.getElementById('bomEditorModal').classList.add('hidden');
+  _bomEditorContext=null;
+}
+function renderBomEditor(){
+  if(!_bomEditorContext)return;
+  const body=document.getElementById('bomEditorBody');
+  const rows=_bomEditorContext.rows;
+  const showPricing=!!S.bomIncludePricing;
+  document.querySelectorAll('.bom-price-col').forEach(el=>el.style.display=showPricing?'':'none');
+  let subtotal=0;
+  body.innerHTML=rows.map((r,i)=>{
+    const key=bomLineKey(r);
+    const ann=S.bomAnnotations[key]||{};
+    const list=Number(ann.listPrice)||0;
+    const mk=Number(ann.markupPct)||0;
+    const unitSell=list*(1+mk/100);
+    const ext=unitSell*r.qty;
+    subtotal+=ext;
+    const fmtCur=v=>v?'$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+    return`
+      <tr data-key="${escapeHtml(key)}">
+        <td style="padding:4px 8px;"><strong>${escapeHtml(r.name)}</strong><div style="font-size:10px;color:var(--muted);">${escapeHtml(r.type)} · ${escapeHtml(r.family)}${r.bf?' · BF '+r.bf+'"':''}</div></td>
+        <td style="padding:4px 8px;text-align:right;font-weight:700;">${r.qty}</td>
+        <td style="padding:4px 8px;"><input class="bom-lead-time" value="${escapeHtml(ann.leadTime||'')}" placeholder="e.g. 4 wks" style="width:80px;padding:2px 4px;font-size:11px;"/></td>
+        <td style="padding:4px 8px;"><input class="bom-vendor" value="${escapeHtml(ann.vendor||r.vendor)}" style="width:130px;padding:2px 4px;font-size:11px;"/></td>
+        <td class="bom-price-col" style="padding:4px 8px;text-align:right;${showPricing?'':'display:none;'}"><input class="bom-list" type="number" min="0" step="0.01" value="${ann.listPrice||''}" style="width:80px;padding:2px 4px;font-size:11px;text-align:right;"/></td>
+        <td class="bom-price-col" style="padding:4px 8px;text-align:right;${showPricing?'':'display:none;'}"><input class="bom-markup" type="number" min="0" step="0.1" value="${ann.markupPct||''}" style="width:60px;padding:2px 4px;font-size:11px;text-align:right;"/></td>
+        <td class="bom-price-col" style="padding:4px 8px;text-align:right;${showPricing?'':'display:none;'}">${fmtCur(unitSell)}</td>
+        <td class="bom-price-col" style="padding:4px 8px;text-align:right;font-weight:700;${showPricing?'':'display:none;'}">${fmtCur(ext)}</td>
+      </tr>`;
+  }).join('');
+  // Wire input listeners. Avoid re-rendering the whole body on input
+  // (it would detach the next field the user is typing into); instead
+  // update the row's computed cells + totals footer in place.
+  body.querySelectorAll('tr[data-key]').forEach(tr=>{
+    const key=tr.dataset.key;
+    const writeAnn=()=>{
+      if(!S.bomAnnotations[key])S.bomAnnotations[key]={};
+      const ann=S.bomAnnotations[key];
+      const lt=tr.querySelector('.bom-lead-time').value.trim();
+      const vd=tr.querySelector('.bom-vendor').value.trim();
+      const lp=tr.querySelector('.bom-list')?.value;
+      const mk=tr.querySelector('.bom-markup')?.value;
+      if(lt)ann.leadTime=lt;else delete ann.leadTime;
+      if(vd)ann.vendor=vd;else delete ann.vendor;
+      if(lp!=null&&lp!==''&&Number(lp)>0)ann.listPrice=Number(lp);else delete ann.listPrice;
+      if(mk!=null&&mk!==''&&Number(mk)!==0)ann.markupPct=Number(mk);else delete ann.markupPct;
+      if(!Object.keys(ann).length)delete S.bomAnnotations[key];
+      updateBomEditorComputed();
+    };
+    tr.querySelectorAll('input').forEach(input=>{
+      input.addEventListener('input',writeAnn);
+      input.addEventListener('blur',()=>pushHistory());
+    });
+  });
+  updateBomEditorComputed();
+}
+function updateBomEditorComputed(){
+  // Recompute per-row unit-sell / extended cells + totals footer
+  // without rebuilding the table body (which would steal focus from
+  // whichever input the user is typing into).
+  if(!_bomEditorContext)return;
+  const showPricing=!!S.bomIncludePricing;
+  document.querySelectorAll('.bom-price-col').forEach(el=>el.style.display=showPricing?'':'none');
+  let subtotal=0;
+  const fmtCur=v=>v?'$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+  _bomEditorContext.rows.forEach(r=>{
+    const key=bomLineKey(r);
+    const tr=document.querySelector(`#bomEditorBody tr[data-key="${CSS.escape(key)}"]`);
+    if(!tr)return;
+    const ann=S.bomAnnotations[key]||{};
+    const list=Number(ann.listPrice)||0;
+    const mk=Number(ann.markupPct)||0;
+    const unitSell=list*(1+mk/100);
+    const ext=unitSell*r.qty;
+    subtotal+=ext;
+    // The 5th and 6th .bom-price-col cells (Unit sell, Extended) are
+    // the two display-only price cells — find them by position.
+    const priceCells=tr.querySelectorAll('.bom-price-col');
+    if(priceCells.length>=4){
+      priceCells[2].textContent=fmtCur(unitSell);
+      priceCells[3].innerHTML='<strong>'+fmtCur(ext)+'</strong>';
+    }
+  });
+  const totalsBox=document.getElementById('bomEditorTotals');
+  if(showPricing){
+    totalsBox.style.display='flex';
+    const taxPct=Number(S.bomTaxPct)||0;
+    const tax=subtotal*taxPct/100;
+    const total=subtotal+tax;
+    const fmt=v=>'$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+    document.getElementById('bomSubtotal').textContent=fmt(subtotal);
+    document.getElementById('bomTax').textContent=fmt(tax);
+    document.getElementById('bomTotal').textContent=fmt(total);
+  }else{
+    totalsBox.style.display='none';
+  }
 }
 
 function buildFullCanvas(){
@@ -4874,7 +5842,7 @@ function buildFullCanvas(){
 // ══════════════════════════════════════════════════
 function saveProj(){
   askFileName('Save Project',defaultFileName('flowforge'),'flowforge',name=>{
-    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden});
+    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct,comments:S.comments});
     dl(new Blob([data],{type:'application/json'}),name);showToast('Project saved');
     clearAutosave();
   });
@@ -4914,7 +5882,7 @@ function loadCust(file){
 // HISTORY (UNDO/REDO)
 // ══════════════════════════════════════════════════
 function pushHistory(){
-  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden});
+  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct,comments:S.comments});
   S.history=S.history.slice(0,S.historyIdx+1);
   S.history.push(snap);S.historyIdx=S.history.length-1;
   if(S.history.length>80){S.history.shift();S.historyIdx--;}
@@ -4923,7 +5891,7 @@ function pushHistory(){
 function undo(){
   if(S.historyIdx<=0)return;S.historyIdx--;
   const d=JSON.parse(S.history[S.historyIdx]);
-  S.objects=d.objects;S.customs=d.customs;S.proj=d.proj;S.notes=(d.notes||[]).map(n=>n.type==='text'?{w:140,h:36,...n}:n);S.notesHidden=!!d.notesHidden||!!d.labelsHidden;S.labelsHidden=S.notesHidden;S.conveyorLabelsHidden=d.conveyorLabelsHidden==null?true:!!d.conveyorLabelsHidden;S.tagsHidden=!!d.tagsHidden;
+  S.objects=d.objects;S.customs=d.customs;S.proj=d.proj;S.notes=(d.notes||[]).map(n=>n.type==='text'?{w:140,h:36,...n}:n);S.notesHidden=!!d.notesHidden||!!d.labelsHidden;S.labelsHidden=S.notesHidden;S.conveyorLabelsHidden=d.conveyorLabelsHidden==null?true:!!d.conveyorLabelsHidden;S.tagsHidden=!!d.tagsHidden;S.dimensions=Array.isArray(d.dimensions)?d.dimensions:[];S.selDimId=null;
   realignAllTCarAttachments();
   S.selId=null;S.selIds.clear();S.selNoteId=null;
   if(typeof closeNotePopover==='function')closeNotePopover();
@@ -4932,7 +5900,7 @@ function undo(){
 function redo(){
   if(S.historyIdx>=S.history.length-1)return;S.historyIdx++;
   const d=JSON.parse(S.history[S.historyIdx]);
-  S.objects=d.objects;S.customs=d.customs;S.proj=d.proj;S.notes=(d.notes||[]).map(n=>n.type==='text'?{w:140,h:36,...n}:n);S.notesHidden=!!d.notesHidden||!!d.labelsHidden;S.labelsHidden=S.notesHidden;S.conveyorLabelsHidden=d.conveyorLabelsHidden==null?true:!!d.conveyorLabelsHidden;S.tagsHidden=!!d.tagsHidden;
+  S.objects=d.objects;S.customs=d.customs;S.proj=d.proj;S.notes=(d.notes||[]).map(n=>n.type==='text'?{w:140,h:36,...n}:n);S.notesHidden=!!d.notesHidden||!!d.labelsHidden;S.labelsHidden=S.notesHidden;S.conveyorLabelsHidden=d.conveyorLabelsHidden==null?true:!!d.conveyorLabelsHidden;S.tagsHidden=!!d.tagsHidden;S.dimensions=Array.isArray(d.dimensions)?d.dimensions:[];S.selDimId=null;
   realignAllTCarAttachments();
   S.selId=null;S.selIds.clear();S.selNoteId=null;
   if(typeof closeNotePopover==='function')closeNotePopover();
@@ -5068,6 +6036,7 @@ function showContextMenu(e,obj){
     ...(obj.type==='conveyor'&&hasMovedTagAnchor(obj)?[{icon:'⌖',label:'Reset Tag Anchor',fn:()=>{resetTagAnchor(obj,{keepTagPosition:true});pushHistory();render();syncProps();}}]:[]),
     ...(obj.type==='conveyor'&&linkedBFOptions.length?[{icon:'⇄',label:'Match BF to Linked',fn:()=>matchBFToLinked(obj)}]:[]),
     ...(obj.type==='conveyor'?[{icon:'🔓',label:obj.freeMove?'Re-enable Linking':'Free Move (No Linking)',fn:()=>toggleFreeMove(obj)}]:[]),
+    {icon:'💬',label:'Add Comment',fn:()=>openCommentPopover(obj.id)},
     {icon:'⬆️',label:'Move Up in Stack',fn:()=>moveObjectInStack(obj,1)},
     {icon:'⬇️',label:'Move Down in Stack',fn:()=>moveObjectInStack(obj,-1)},
     {sep:true},
@@ -5123,6 +6092,7 @@ function parseProjectPayload(raw){
   if(d.customs!=null&&!Array.isArray(d.customs))throw new Error('Custom library payload is invalid.');
   if(d.libTagPrefs!=null&&!isPlainObject(d.libTagPrefs))throw new Error('Library tag preferences are invalid.');
   if(d.notes!=null&&!Array.isArray(d.notes))throw new Error('Notes payload is invalid.');
+  if(d.dimensions!=null&&!Array.isArray(d.dimensions))throw new Error('Dimensions payload is invalid.');
   return {
     proj:d.proj||S.proj,
     objects:validateLoadedRecordList(d.objects||[],'Objects','type'),
@@ -5133,6 +6103,14 @@ function parseProjectPayload(raw){
     labelsHidden:!!d.labelsHidden,
     conveyorLabelsHidden:d.conveyorLabelsHidden==null?true:!!d.conveyorLabelsHidden,
     tagsHidden:!!d.tagsHidden,
+    dimensions:Array.isArray(d.dimensions)?d.dimensions.filter(x=>isPlainObject(x)&&isPlainObject(x.p1)&&isPlainObject(x.p2)):[],
+    showThroughput:!!d.showThroughput,
+    throughputDefaults:isPlainObject(d.throughputDefaults)?{speedFpm:Number(d.throughputDefaults.speedFpm)||60,caseLenIn:Number(d.throughputDefaults.caseLenIn)||18,caseGapIn:Number(d.throughputDefaults.caseGapIn)||6}:{speedFpm:60,caseLenIn:18,caseGapIn:6},
+    revisions:Array.isArray(d.revisions)?d.revisions.filter(r=>isPlainObject(r)&&isPlainObject(r.payload)&&typeof r.id==='string'):[],
+    bomAnnotations:isPlainObject(d.bomAnnotations)?d.bomAnnotations:{},
+    bomIncludePricing:!!d.bomIncludePricing,
+    bomTaxPct:Number(d.bomTaxPct)||0,
+    comments:Array.isArray(d.comments)?d.comments.filter(c=>isPlainObject(c)&&typeof c.id==='string'):[],
   };
 }
 function applyLoadedProjectData(data){
@@ -5141,6 +6119,17 @@ function applyLoadedProjectData(data){
   S.customs=data.customs;
   S.libTagPrefs=data.libTagPrefs;
   S.notes=data.notes;
+  S.dimensions=Array.isArray(data.dimensions)?data.dimensions:[];
+  S.selDimId=null;
+  S.measureMode=null;
+  S.measurePreview=null;
+  if(data.showThroughput!=null)S.showThroughput=!!data.showThroughput;
+  if(data.throughputDefaults)S.throughputDefaults={...S.throughputDefaults,...data.throughputDefaults};
+  S.revisions=Array.isArray(data.revisions)?data.revisions:[];
+  S.bomAnnotations=isPlainObject(data.bomAnnotations)?data.bomAnnotations:{};
+  S.bomIncludePricing=!!data.bomIncludePricing;
+  S.bomTaxPct=Number(data.bomTaxPct)||0;
+  S.comments=Array.isArray(data.comments)?data.comments:[];
   S.notesHidden=!!data.notesHidden||!!data.labelsHidden;
   S.labelsHidden=S.notesHidden;
   S.conveyorLabelsHidden=data.conveyorLabelsHidden==null?true:!!data.conveyorLabelsHidden;
@@ -5164,6 +6153,1090 @@ function applyLoadedProjectData(data){
   syncOptionsMenuState();
   pushHistory();
 }
+
+// ── DEMO LAYOUTS (Phase 5) ────────────────────────────────────────────
+// Each demo is a flat list of placement recipes: {family, x, y, rot?,
+// bf?, length?, width?, vendor?, tag?, tagColor?, notes?, isCurve?,
+// cAng?, cHand?, isXfer?, isTurntable?, tShape?, mergeAngle?,
+// spurAngle?, sc?}. The builder funnels each recipe through the same
+// `mkObj()` path the library uses, so demos are guaranteed schema-
+// compatible with the live save/load pipeline.
+const DEMO_NOTES_PICKPACK=[
+  {text:'4 pick lanes → takeaway',x:120,y:60},
+  {text:'Pack stations',x:1080,y:60},
+];
+const DEMO_NOTES_PALLET=[
+  {text:'Receiving',x:80,y:60},
+  {text:'Workstations',x:520,y:60},
+  {text:'Outbound',x:1080,y:60},
+];
+const DEMO_NOTES_SORT=[
+  {text:'Infeed',x:80,y:60},
+  {text:'Sort engine',x:600,y:60},
+  {text:'3 outbound lanes',x:1100,y:60},
+];
+const DEMO_LAYOUTS={
+  pickpack:{
+    proj:{name:'Pick-Pack 12,000 sqft',quote:'DEMO-PP-001',date:new Date().toISOString().slice(0,10),notes:'Sample 12k sqft pick-pack flow: four pick lanes feed a powered takeaway, ending at four pack stations.'},
+    notes:DEMO_NOTES_PICKPACK,
+    items:[
+      // 4 pick lanes (CDLR 120" long, 27.25 BF) stacked vertically
+      {family:'cdlr',x:160,y:160,length:120,width:30,bf:27.25,tag:'L1',tagColor:'green'},
+      {family:'cdlr',x:160,y:260,length:120,width:30,bf:27.25,tag:'L2',tagColor:'green'},
+      {family:'cdlr',x:160,y:360,length:120,width:30,bf:27.25,tag:'L3',tagColor:'green'},
+      {family:'cdlr',x:160,y:460,length:120,width:30,bf:27.25,tag:'L4',tagColor:'green'},
+      // Per-lane spurs converging onto the takeaway
+      {family:'nor-spur',x:340,y:160,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      {family:'nor-spur',x:340,y:260,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      {family:'nor-spur',x:340,y:360,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      {family:'nor-spur',x:340,y:460,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      // Long powered takeaway running across to pack
+      {family:'nor-str',x:480,y:280,length:480,width:24,bf:21.25,vendor:'nor',tag:'TKA',tagColor:'orange'},
+      // Pack station tables (gravity)
+      {family:'gravity',x:1000,y:160,length:96,width:30,bf:27.25,tag:'P1'},
+      {family:'gravity',x:1000,y:260,length:96,width:30,bf:27.25,tag:'P2'},
+      {family:'gravity',x:1000,y:360,length:96,width:30,bf:27.25,tag:'P3'},
+      {family:'gravity',x:1000,y:460,length:96,width:30,bf:27.25,tag:'P4'},
+      // Pack-out collector
+      {family:'cdlr',x:1180,y:280,length:180,width:30,bf:27.25,rot:0,tag:'OUT',tagColor:'red'},
+    ],
+  },
+  pallet:{
+    proj:{name:'Pallet-to-Piece Conversion',quote:'DEMO-P2P-001',date:new Date().toISOString().slice(0,10),notes:'Pallet receiving → chain conveyor decant → manual workstations → powered outbound.'},
+    notes:DEMO_NOTES_PALLET,
+    items:[
+      // Inbound chain conveyor for pallets
+      {family:'chain',x:120,y:200,length:144,width:48,bf:42,sc:3,tag:'PALIN',tagColor:'orange'},
+      // Manual turntable for orientation
+      {family:'tt-man',x:300,y:200,length:48,width:48,bf:null,isTurntable:true,tShape:'square',cap:4000,tag:'TT'},
+      // Powered roller decant lane (the "decant" workstation feed)
+      {family:'nor-str',x:380,y:200,length:240,width:24,bf:21.25,vendor:'nor',tag:'DEC'},
+      // Two workstation drops (gravity, short)
+      {family:'gravity',x:640,y:140,length:72,width:30,bf:27.25,tag:'WS1'},
+      {family:'gravity',x:640,y:260,length:72,width:30,bf:27.25,tag:'WS2'},
+      // Workstation obstacles (employees/benches)
+      {family:'gravity',x:760,y:140,length:72,width:30,bf:27.25,tag:'WS3'},
+      {family:'gravity',x:760,y:260,length:72,width:30,bf:27.25,tag:'WS4'},
+      // Belt collector that feeds outbound
+      {family:'belt',x:880,y:200,length:200,width:30,bf:27.25,tag:'COL',tagColor:'green'},
+      // Outbound powered roller
+      {family:'nor-str',x:1140,y:200,length:240,width:24,bf:21.25,vendor:'nor',tag:'OUT',tagColor:'red'},
+    ],
+  },
+  sortation:{
+    proj:{name:'Multi-Lane Sortation',quote:'DEMO-SORT-001',date:new Date().toISOString().slice(0,10),notes:'High-throughput sortation: powered infeed, 360 sortation table or spur diverts, three outbound lanes to packout.'},
+    notes:DEMO_NOTES_SORT,
+    items:[
+      // Powered infeed
+      {family:'nor-str',x:80,y:300,length:360,width:24,bf:21.25,vendor:'nor',tag:'IN',tagColor:'orange'},
+      // 360 sort table at the diverge point
+      {family:'nor-360',x:460,y:282,length:36,width:36,bf:32,vendor:'nor',tag:'SORT',tagColor:'red'},
+      // Three lane spurs (30/45/30)
+      {family:'nor-spur',x:520,y:160,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      {family:'nor-spur',x:520,y:300,spurAngle:45,length:96,width:30,bf:27.25,vendor:'nor'},
+      {family:'nor-spur',x:520,y:440,spurAngle:30,length:96,width:30,bf:27.25,vendor:'nor'},
+      // Three outbound powered lanes
+      {family:'nor-str',x:660,y:160,length:300,width:24,bf:21.25,vendor:'nor',tag:'A'},
+      {family:'nor-str',x:660,y:300,length:300,width:24,bf:21.25,vendor:'nor',tag:'B'},
+      {family:'nor-str',x:660,y:440,length:300,width:24,bf:21.25,vendor:'nor',tag:'C'},
+      // Each lane terminates in a pack station (gravity)
+      {family:'gravity',x:980,y:160,length:96,width:30,bf:27.25,tag:'PA',tagColor:'green'},
+      {family:'gravity',x:980,y:300,length:96,width:30,bf:27.25,tag:'PB',tagColor:'green'},
+      {family:'gravity',x:980,y:440,length:96,width:30,bf:27.25,tag:'PC',tagColor:'green'},
+      // Crossover transfer (between lane A and B for re-routing)
+      {family:'nor-xfer',x:1120,y:230,length:48,width:22,bf:19.25,sc:3,isXfer:true,vendor:'nor',tag:'XF'},
+    ],
+  },
+};
+function buildDemoPayload(key){
+  const demo=DEMO_LAYOUTS[key];
+  if(!demo)return null;
+  const objects=demo.items.map((item,idx)=>{
+    const spec={...item};
+    const o=mkObj(spec,{x:spec.x,y:spec.y});
+    if(Number.isFinite(spec.rot))o.rot=spec.rot;
+    if(spec.tag)o.tag=spec.tag;
+    if(spec.tagColor)o.tagColor=spec.tagColor;
+    o.stackOrder=idx;
+    return o;
+  });
+  const notes=(demo.notes||[]).map(n=>{const tn=makeTextNote(n.x,n.y);if(n.text)tn.text=n.text;if(n.w)tn.w=n.w;return tn;});
+  return {
+    proj:{...demo.proj},
+    objects,
+    customs:[],
+    libTagPrefs:{},
+    notes,
+    notesHidden:false,
+    labelsHidden:false,
+    conveyorLabelsHidden:false,
+    tagsHidden:false,
+  };
+}
+// ── LAYERS PANEL (Phase 9) ────────────────────────────────────────────
+// Flat scrollable list of every object in the project, sorted top-of-
+// z-stack to bottom. Click a row to select that object on canvas. Drag
+// a row to reorder stackOrder. Eye toggles obj.hidden (filtered out of
+// renders and exports but kept in the project file).
+function getLayerOrderedObjects(){
+  // Same comparator as getRenderableObjects, but includes hidden items
+  // (the panel must show hidden items so the eye can re-enable them).
+  return [...S.objects].sort((a,b)=>{
+    const z=layerRank(a)-layerRank(b);
+    return z||((Number(a?.stackOrder)||0)-(Number(b?.stackOrder)||0))||(a.id||'').localeCompare(b.id||'');
+  });
+}
+function openLayersModal(){
+  document.getElementById('layersModal').classList.remove('hidden');
+  renderLayersList();
+}
+function closeLayersModal(){
+  document.getElementById('layersModal').classList.add('hidden');
+}
+function toggleLayerHidden(id){
+  const o=S.objects.find(x=>x.id===id);if(!o)return;
+  o.hidden=!o.hidden;
+  pushHistory();render();renderLayersList();
+}
+function renderLayersList(){
+  const list=document.getElementById('layersList');
+  if(!list)return;
+  const objs=getLayerOrderedObjects().reverse(); // top of z-stack first
+  document.getElementById('layersCount').textContent=`${objs.length} object${objs.length===1?'':'s'}`;
+  list.innerHTML='';
+  objs.forEach(o=>{
+    const row=document.createElement('div');
+    row.className='layer-row'+(S.selIds.has(o.id)||S.selId===o.id?' selected':'')+(o.hidden?' hidden-item':'');
+    row.dataset.id=o.id;
+    row.draggable=true;
+    const fam=o.family||o.type||'object';
+    const label=o.name||fam;
+    row.innerHTML=`
+      <div class="layer-handle" aria-hidden="true">≡</div>
+      <button class="layer-eye${o.hidden?' off':''}" title="${o.hidden?'Show':'Hide'} on canvas and exports" aria-label="Toggle visibility">${o.hidden?'◌':'●'}</button>
+      <div>
+        <div class="layer-name">${escapeHtml(label)}${o.tag?` <span style="color:var(--forge-orange);font-weight:700;">#${escapeHtml(o.tag)}</span>`:''}</div>
+        <div class="layer-meta">${escapeHtml(fam)}${o.groupId?` · group ${o.groupId.slice(4)}`:''}</div>
+      </div>
+      <div style="width:14px;height:14px;border-radius:3px;background:${FS(o.family)||'#888'};border:1px solid rgba(0,0,0,.18);" aria-hidden="true"></div>
+    `;
+    row.querySelector('.layer-eye').addEventListener('click',ev=>{ev.stopPropagation();toggleLayerHidden(o.id);});
+    row.addEventListener('click',()=>{sel(o.id);renderLayersList();});
+    row.addEventListener('dragstart',ev=>{ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',o.id);row.classList.add('dragging');});
+    row.addEventListener('dragend',()=>{row.classList.remove('dragging');list.querySelectorAll('.layer-row').forEach(r=>r.classList.remove('drop-above','drop-below'));});
+    row.addEventListener('dragover',ev=>{
+      ev.preventDefault();ev.dataTransfer.dropEffect='move';
+      const rect=row.getBoundingClientRect();
+      const above=(ev.clientY-rect.top)<rect.height/2;
+      list.querySelectorAll('.layer-row').forEach(r=>r.classList.remove('drop-above','drop-below'));
+      row.classList.add(above?'drop-above':'drop-below');
+    });
+    row.addEventListener('drop',ev=>{
+      ev.preventDefault();
+      const srcId=ev.dataTransfer.getData('text/plain');
+      if(!srcId||srcId===o.id)return;
+      const rect=row.getBoundingClientRect();
+      const above=(ev.clientY-rect.top)<rect.height/2;
+      reorderLayer(srcId,o.id,above?'above':'below');
+    });
+    list.appendChild(row);
+  });
+}
+function reorderLayer(srcId,tgtId,position){
+  const src=S.objects.find(o=>o.id===srcId);
+  const tgt=S.objects.find(o=>o.id===tgtId);
+  if(!src||!tgt)return;
+  // Constrain to a single layerRank tier — moving across tiers (e.g.
+  // T-Car car vs rail) is reserved to the right-click "Move Up/Down
+  // in Stack" path. Inside the layers panel, drops are clamped.
+  if(layerRank(src)!==layerRank(tgt)){showToast('Layer types do not mix — use right-click Move Up/Down for cross-tier reorder');return;}
+  // Topmost-first display: dropping "above" tgt means a higher
+  // stackOrder; "below" means a lower one.
+  const tier=S.objects.filter(o=>layerRank(o)===layerRank(src)).sort((a,b)=>(Number(a.stackOrder)||0)-(Number(b.stackOrder)||0));
+  const without=tier.filter(o=>o.id!==srcId);
+  const tgtIdx=without.findIndex(o=>o.id===tgtId);
+  const insertIdx=position==='above'?tgtIdx+1:tgtIdx; // higher stackOrder = "above" in z; topmost-first list reverses, so "above" the row = higher stackOrder
+  without.splice(insertIdx,0,src);
+  without.forEach((o,idx)=>{o.stackOrder=idx;});
+  pushHistory();render();renderLayersList();
+}
+function escapeHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// ── THROUGHPUT OVERLAY (Phase 11) ─────────────────────────────────────
+// Cases-per-hour estimate badge under each powered conveyor's info
+// label. Formula: speed_fpm × 60 min × 12 in/ft / (case_len + case_gap)
+// = (speed_fpm × 720) / (case_len + case_gap). The case spacing is the
+// belt distance one case occupies, so the rate falls naturally out of
+// belt-feet-per-hour divided by inches-per-case.
+const POWERED_FAMILIES=new Set(['cdlr','bdlr','belt','pbelt','nor-str','nor-cur','nor-merge','nor-spur','nor-360','chain','chain-xfer','tbelt-xfer','tt-pow']);
+function isPoweredConveyor(obj){
+  return !!obj&&obj.type==='conveyor'&&POWERED_FAMILIES.has(obj.family);
+}
+function getThroughputParams(obj){
+  const d=S.throughputDefaults||{speedFpm:60,caseLenIn:18,caseGapIn:6};
+  const o=obj?.throughput||{};
+  return{
+    speedFpm:Number.isFinite(Number(o.speedFpm))&&Number(o.speedFpm)>0?Number(o.speedFpm):d.speedFpm,
+    caseLenIn:Number.isFinite(Number(o.caseLenIn))&&Number(o.caseLenIn)>0?Number(o.caseLenIn):d.caseLenIn,
+    caseGapIn:Number.isFinite(Number(o.caseGapIn))&&Number(o.caseGapIn)>=0?Number(o.caseGapIn):d.caseGapIn,
+  };
+}
+function computeThroughput(obj){
+  const p=getThroughputParams(obj);
+  const spacing=Math.max(p.caseLenIn+p.caseGapIn,0.0001);
+  return Math.round(p.speedFpm*720/spacing);
+}
+function addOverlayThroughputBadge(obj){
+  if(!S.showThroughput||S.conveyorLabelsHidden)return;
+  if(!isPoweredConveyor(obj))return;
+  const m=conveyorInfoLabelMetrics(obj);if(!m)return;
+  const cph=computeThroughput(obj);
+  if(!cph||!isFinite(cph))return;
+  const text=cph.toLocaleString()+' cph';
+  const fs=Math.max(7,Math.min(10,m.fs-1));
+  const padX=6,padY=2;
+  const textW=text.length*fs*0.58;
+  const w=Math.max(textW+padX*2,28);
+  const h=fs+padY*2;
+  // Position the badge just below the info label, in the conveyor's
+  // upright orientation. Apply the same readable-angle transform.
+  const g=svgEl('g',{transform:`translate(${m.cx},${m.cy}) rotate(${m.angle})`,'pointer-events':'none'});
+  const y=m.labelH/2+3; // below the info-label rectangle
+  g.appendChild(svgEl('rect',{x:-w/2,y,width:w,height:h,rx:'4',fill:'#1a7a3a',stroke:'rgba(0,0,0,0.18)','stroke-width':'0.6'}));
+  const t=svgEl('text',{x:0,y:y+h/2+fs*0.34,'text-anchor':'middle',fill:'#fff','font-size':String(fs),'font-weight':'700','font-family':'Arial, sans-serif'});
+  t.textContent=text;g.appendChild(t);
+  OV.appendChild(g);
+}
+function toggleShowThroughput(force){
+  const want=typeof force==='boolean'?force:!S.showThroughput;
+  S.showThroughput=want;
+  const btn=document.getElementById('showThroughputBtn');
+  if(btn){btn.textContent=want?'Hide Throughput':'Show Throughput';}
+  drawOverlay();
+}
+function syncThroughputOptionsUI(){
+  const btn=document.getElementById('showThroughputBtn');
+  if(btn)btn.textContent=S.showThroughput?'Hide Throughput':'Show Throughput';
+  const s=document.getElementById('tpDefSpeed'),l=document.getElementById('tpDefCaseLen'),g=document.getElementById('tpDefCaseGap');
+  if(s)s.value=S.throughputDefaults.speedFpm;
+  if(l)l.value=S.throughputDefaults.caseLenIn;
+  if(g)g.value=S.throughputDefaults.caseGapIn;
+}
+
+// ── MEASURE TOOL (Phase 10) ───────────────────────────────────────────
+// Click-to-measure dimension chain. First click sets the start point;
+// second click commits a {p1, p2} dimension. Subsequent clicks chain a
+// new segment starting from the previous endpoint. Esc or the Measure
+// button exits. Snaps to object endpoints, centers, and corners within
+// 0.5" tolerance (visualized as a magenta crosshair).
+function toggleMeasureMode(force){
+  const want=typeof force==='boolean'?force:!S.measureMode;
+  if(want){
+    S.measureMode={points:[]};
+    document.getElementById('measureBtn').classList.add('active');
+    document.body.style.cursor='crosshair';
+    sel(null);
+    showToast('Measure: click two points · Esc to exit');
+  }else{
+    S.measureMode=null;
+    S.measurePreview=null;
+    document.getElementById('measureBtn').classList.remove('active');
+    document.body.style.cursor='';
+    drawOverlay();
+  }
+}
+function measureSnapCandidates(){
+  // Returns world-space candidate snap points: endpoints (straight + curve),
+  // AABB corners, AABB center, and existing dimension endpoints.
+  const out=[];
+  for(const o of S.objects){
+    if(o.hidden)continue;
+    if(o.type==='conveyor'){
+      const eps=getEPs(o);
+      for(const e of eps)out.push({x:e.x,y:e.y,kind:'endpoint'});
+    }
+    const a=getAABB(o);
+    out.push({x:a.x,y:a.y,kind:'corner'});
+    out.push({x:a.x+a.w,y:a.y,kind:'corner'});
+    out.push({x:a.x,y:a.y+a.h,kind:'corner'});
+    out.push({x:a.x+a.w,y:a.y+a.h,kind:'corner'});
+    out.push({x:a.x+a.w/2,y:a.y+a.h/2,kind:'center'});
+  }
+  for(const d of S.dimensions){
+    out.push({x:d.p1.x,y:d.p1.y,kind:'dim-end'});
+    out.push({x:d.p2.x,y:d.p2.y,kind:'dim-end'});
+  }
+  return out;
+}
+function measureSnap(worldX,worldY){
+  const tol=Math.max(0.5*S.ppi,8/S.zoom);
+  let best=null,bestD=Infinity;
+  for(const c of measureSnapCandidates()){
+    const d=Math.hypot(c.x-worldX,c.y-worldY);
+    if(d<=tol&&d<bestD){bestD=d;best=c;}
+  }
+  return best?{x:best.x,y:best.y,snap:true,kind:best.kind}:{x:worldX,y:worldY,snap:false};
+}
+function handleMeasureClick(clientX,clientY){
+  if(compareModeBlocking())return;
+  if(!S.measureMode)return;
+  const raw=clientToWS(clientX,clientY);
+  const p=measureSnap(raw.x,raw.y);
+  const pts=S.measureMode.points;
+  pts.push({x:p.x,y:p.y});
+  if(pts.length>=2){
+    const p1=pts[pts.length-2],p2=pts[pts.length-1];
+    const dim={id:uid('dim'),p1:{x:p1.x,y:p1.y},p2:{x:p2.x,y:p2.y}};
+    S.dimensions.push(dim);
+    S.selDimId=dim.id;
+    pushHistory();
+  }
+  drawOverlay();
+}
+function commitMeasureChain(){
+  // Pressing Enter or clicking the Measure button while in chain mode
+  // exits and clears the in-progress point if any.
+  toggleMeasureMode(false);
+}
+function deleteSelectedDimension(){
+  if(!S.selDimId)return false;
+  S.dimensions=S.dimensions.filter(d=>d.id!==S.selDimId);
+  S.selDimId=null;
+  pushHistory();drawOverlay();return true;
+}
+function findDimensionAt(clientX,clientY){
+  // Hit-test dimension lines: within ~5px screen distance of the
+  // segment. Returns the dimension id or null.
+  const p=clientToWS(clientX,clientY);
+  const tol=5/S.zoom;
+  for(let i=S.dimensions.length-1;i>=0;i--){
+    const d=S.dimensions[i];
+    const dx=d.p2.x-d.p1.x,dy=d.p2.y-d.p1.y;
+    const len2=dx*dx+dy*dy;if(!len2)continue;
+    const t=Math.max(0,Math.min(1,((p.x-d.p1.x)*dx+(p.y-d.p1.y)*dy)/len2));
+    const cx=d.p1.x+t*dx,cy=d.p1.y+t*dy;
+    if(Math.hypot(p.x-cx,p.y-cy)<=tol)return d.id;
+  }
+  return null;
+}
+function findDimensionEndpointAt(clientX,clientY){
+  // Returns {dimId, endpoint:'p1'|'p2'} or null.
+  const p=clientToWS(clientX,clientY);
+  const tol=8/S.zoom;
+  for(const d of S.dimensions){
+    if(Math.hypot(p.x-d.p1.x,p.y-d.p1.y)<=tol)return{dimId:d.id,endpoint:'p1'};
+    if(Math.hypot(p.x-d.p2.x,p.y-d.p2.y)<=tol)return{dimId:d.id,endpoint:'p2'};
+  }
+  return null;
+}
+function beginDimensionEndpointDrag(hit,startClientX,startClientY){
+  const move=ev=>{
+    const raw=clientToWS(ev.clientX,ev.clientY);
+    const p=measureSnap(raw.x,raw.y);
+    const d=S.dimensions.find(x=>x.id===hit.dimId);if(!d)return;
+    d[hit.endpoint]={x:p.x,y:p.y};
+    drawOverlay();
+  };
+  const up=()=>{
+    window.removeEventListener('pointermove',move);
+    window.removeEventListener('pointerup',up);
+    pushHistory();
+  };
+  window.addEventListener('pointermove',move);
+  window.addEventListener('pointerup',up);
+}
+function dimensionLengthInches(d){
+  // S.ppi maps inches to pixels — so px distance / ppi = inches.
+  return Math.hypot(d.p2.x-d.p1.x,d.p2.y-d.p1.y)/Math.max(S.ppi,0.001);
+}
+function drawDimensions(){
+  // Render committed dimensions, in-progress chain segments, and the
+  // measure-mode snap crosshair. Called from drawOverlay().
+  for(const d of S.dimensions){
+    const selected=S.selDimId===d.id;
+    const color=selected?'#ff6a18':'#c0521a';
+    const lw=selected?'2.5':'1.8';
+    const ln=svgLine(d.p1.x,d.p1.y,d.p2.x,d.p2.y,color,lw);
+    OV.appendChild(ln);
+    // End ticks perpendicular to the line.
+    const angle=Math.atan2(d.p2.y-d.p1.y,d.p2.x-d.p1.x);
+    const tx=Math.sin(angle)*6,ty=-Math.cos(angle)*6;
+    OV.appendChild(svgLine(d.p1.x+tx,d.p1.y+ty,d.p1.x-tx,d.p1.y-ty,color,lw));
+    OV.appendChild(svgLine(d.p2.x+tx,d.p2.y+ty,d.p2.x-tx,d.p2.y-ty,color,lw));
+    // Endpoint dots (selected only — they're drag handles)
+    if(selected){
+      OV.appendChild(svgEl('circle',{cx:d.p1.x,cy:d.p1.y,r:'5',fill:'#fff',stroke:color,'stroke-width':'2'}));
+      OV.appendChild(svgEl('circle',{cx:d.p2.x,cy:d.p2.y,r:'5',fill:'#fff',stroke:color,'stroke-width':'2'}));
+    }
+    // Label at midpoint
+    const mx=(d.p1.x+d.p2.x)/2,my=(d.p1.y+d.p2.y)/2;
+    const inches=dimensionLengthInches(d);
+    const label=fmtDim(inches);
+    const fs=Math.max(9,Math.min(14,12/Math.max(S.zoom,0.5)));
+    const labelW=Math.max(label.length*fs*0.55+10,40);
+    const labelH=fs+8;
+    // Offset label perpendicular to line so it doesn't overlap the line.
+    const offsetX=Math.sin(angle)*(labelH/2+2);
+    const offsetY=-Math.cos(angle)*(labelH/2+2);
+    OV.appendChild(svgEl('rect',{x:mx-labelW/2+offsetX,y:my-labelH/2+offsetY,width:labelW,height:labelH,rx:'3',fill:'rgba(245,239,222,0.92)',stroke:color,'stroke-width':'1'}));
+    const t=svgEl('text',{x:mx+offsetX,y:my+offsetY+fs*0.34,'text-anchor':'middle',fill:'#2a2f36','font-size':String(fs),'font-weight':'700','font-family':'Arial, sans-serif'});
+    t.textContent=label;OV.appendChild(t);
+  }
+  // In-progress measure: pending start point + cursor preview line.
+  if(S.measureMode){
+    const last=S.measureMode.points[S.measureMode.points.length-1];
+    if(last&&S.measurePreview){
+      const ln=svgLine(last.x,last.y,S.measurePreview.x,S.measurePreview.y,'#ff6a18','1.5');
+      ln.setAttribute('stroke-dasharray','5 3');
+      OV.appendChild(ln);
+      const live=fmtDim(Math.hypot(S.measurePreview.x-last.x,S.measurePreview.y-last.y)/Math.max(S.ppi,0.001));
+      const mx=(last.x+S.measurePreview.x)/2,my=(last.y+S.measurePreview.y)/2;
+      const fs=Math.max(9,Math.min(13,11/Math.max(S.zoom,0.5)));
+      const t=svgEl('text',{x:mx,y:my-8,'text-anchor':'middle',fill:'#c0521a','font-size':String(fs),'font-weight':'700','font-family':'Arial, sans-serif',opacity:'0.85'});
+      t.textContent=live;OV.appendChild(t);
+    }
+    if(last){
+      OV.appendChild(svgEl('circle',{cx:last.x,cy:last.y,r:'4',fill:'#ff6a18',stroke:'#fff','stroke-width':'1.5'}));
+    }
+    if(S.measurePreview?.snap){
+      // Magenta crosshair to indicate snap.
+      const sx=S.measurePreview.x,sy=S.measurePreview.y;
+      OV.appendChild(svgLine(sx-8,sy,sx+8,sy,'#c0289b','1.5'));
+      OV.appendChild(svgLine(sx,sy-8,sx,sy+8,'#c0289b','1.5'));
+      OV.appendChild(svgEl('circle',{cx:sx,cy:sy,r:'5',fill:'none',stroke:'#c0289b','stroke-width':'1.5'}));
+    }
+  }
+}
+
+// ── COMPARE LAYOUTS (Phase 13) ────────────────────────────────────────
+// Side-by-side comparison of the current layout against a second
+// saved .flowforge file. Practical compact version: thumbnails of
+// both layouts in a modal with computed deltas. Editing is not
+// blocked (the modal is read-only by virtue of being a separate
+// modal — no canvas duplication that would invite mutation).
+let _compareProject=null;
+function computeLayoutStats(payload){
+  // payload shape matches a .flowforge file. Falls back to S if null.
+  const proj=payload?.proj||S.proj;
+  const objects=payload?.objects||S.objects;
+  const notes=payload?.notes||S.notes;
+  const conveyors=objects.filter(o=>o.type==='conveyor');
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  let totalBF=0,straightCount=0,curveCount=0,xferCount=0,ttCount=0,tcarCount=0;
+  conveyors.forEach(o=>{
+    minX=Math.min(minX,o.x);minY=Math.min(minY,o.y);
+    const wInches=o.length||(o.oR?o.oR*2:0)||30;
+    const hInches=o.width||(o.oR?o.oR*2:0)||30;
+    maxX=Math.max(maxX,o.x+wInches*1.2);maxY=Math.max(maxY,o.y+hInches*1.2);
+    if(o.bf)totalBF+=Number(o.bf)||0;
+    if(o.isCurve)curveCount++;else if(o.isXfer)xferCount++;else if(o.isTurntable)ttCount++;else if(o.family==='tcar-car')tcarCount++;else straightCount++;
+  });
+  const footW=isFinite(minX)?(maxX-minX)/12:0;
+  const footH=isFinite(minY)?(maxY-minY)/12:0;
+  return{
+    name:proj.name||'',
+    objectCount:objects.length,
+    conveyorCount:conveyors.length,
+    noteCount:notes.length,
+    totalBF,
+    footprintFt:[footW.toFixed(1),footH.toFixed(1)],
+    straightCount,curveCount,xferCount,ttCount,tcarCount,
+  };
+}
+function buildLayoutThumbnail(payload){
+  // Returns a small canvas (220x160) with the layout drawn fit-to-frame.
+  // Uses a temporary S-swap so we can reuse buildCanvas for accuracy.
+  const c=document.createElement('canvas');c.width=220;c.height=160;
+  const ctx=c.getContext('2d');
+  ctx.fillStyle='#f5efde';ctx.fillRect(0,0,220,160);
+  if(!payload)return c;
+  // Determine bbox from payload objects (in world pixels, no S swap needed).
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  payload.objects.forEach(o=>{
+    if(o.type!=='conveyor')return;
+    const wInches=o.length||(o.oR?o.oR*2:0)||30;
+    const hInches=o.width||(o.oR?o.oR*2:0)||30;
+    minX=Math.min(minX,o.x);minY=Math.min(minY,o.y);
+    maxX=Math.max(maxX,o.x+wInches*1.2);maxY=Math.max(maxY,o.y+hInches*1.2);
+  });
+  if(!isFinite(minX))return c;
+  const pad=20;
+  const scale=Math.min((220-pad*2)/(maxX-minX),(160-pad*2)/(maxY-minY));
+  ctx.save();
+  ctx.translate(pad,pad);
+  ctx.scale(scale,scale);
+  ctx.translate(-minX,-minY);
+  payload.objects.forEach(o=>{
+    if(o.type!=='conveyor')return;
+    const wInches=o.length||(o.oR?o.oR*2:0)||30;
+    const hInches=o.width||(o.oR?o.oR*2:0)||30;
+    const w=wInches*1.2,h=hInches*1.2; // approximate at ppi=1.2
+    ctx.save();
+    ctx.translate(o.x+w/2,o.y+h/2);
+    ctx.rotate((o.rot||0)*Math.PI/180);
+    ctx.translate(-w/2,-h/2);
+    const stroke=STROKES[o.family]||'#1d4f8a';
+    const fill=FILLS[o.family]||'rgba(29,79,138,0.05)';
+    ctx.fillStyle=fill;ctx.strokeStyle=stroke;ctx.lineWidth=1.5/scale;
+    ctx.fillRect(0,0,w,h);ctx.strokeRect(0,0,w,h);
+    ctx.restore();
+  });
+  ctx.restore();
+  return c;
+}
+function openCompareModal(){
+  document.getElementById('compareModal').classList.remove('hidden');
+  renderCompareModal();
+}
+function closeCompareModal(){
+  document.getElementById('compareModal').classList.add('hidden');
+  _compareProject=null;
+}
+function renderCompareModal(){
+  const splitBtn=document.getElementById('compareSplitBtn');
+  if(splitBtn)splitBtn.disabled=!_compareProject;
+  const left=document.getElementById('compareLeftPreview');
+  const right=document.getElementById('compareRightPreview');
+  const leftStats=document.getElementById('compareLeftStats');
+  const rightStats=document.getElementById('compareRightStats');
+  // Left = current S
+  const cur=computeLayoutStats({proj:S.proj,objects:S.objects,notes:S.notes});
+  document.getElementById('compareLeftLabel').textContent='Current — '+(cur.name||'(untitled)');
+  left.innerHTML='';
+  left.appendChild(buildLayoutThumbnail({proj:S.proj,objects:S.objects,notes:S.notes}));
+  leftStats.textContent=`${cur.objectCount} objects · ${cur.totalBF.toFixed(1)}" total BF · ${cur.footprintFt[0]}' × ${cur.footprintFt[1]}'`;
+  // Right = _compareProject
+  if(_compareProject){
+    const cmp=computeLayoutStats(_compareProject);
+    document.getElementById('compareRightLabel').textContent='Comparison — '+(cmp.name||'(untitled)');
+    right.innerHTML='';
+    right.appendChild(buildLayoutThumbnail(_compareProject));
+    rightStats.textContent=`${cmp.objectCount} objects · ${cmp.totalBF.toFixed(1)}" total BF · ${cmp.footprintFt[0]}' × ${cmp.footprintFt[1]}'`;
+    // Deltas
+    const dObj=cmp.objectCount-cur.objectCount;
+    const dBF=cmp.totalBF-cur.totalBF;
+    const sign=v=>(v>0?'+':'')+v;
+    document.getElementById('compareDeltas').innerHTML=`
+      Objects: <strong>${cur.objectCount}</strong> → <strong>${cmp.objectCount}</strong> (${sign(dObj)})<br>
+      Total BF: <strong>${cur.totalBF.toFixed(1)}"</strong> → <strong>${cmp.totalBF.toFixed(1)}"</strong> (${sign(dBF.toFixed(1))}")<br>
+      Footprint: <strong>${cur.footprintFt[0]}' × ${cur.footprintFt[1]}'</strong> → <strong>${cmp.footprintFt[0]}' × ${cmp.footprintFt[1]}'</strong><br>
+      <span style="color:var(--muted);">Straight: ${cur.straightCount} → ${cmp.straightCount} · Curves: ${cur.curveCount} → ${cmp.curveCount} · Transfers: ${cur.xferCount} → ${cmp.xferCount} · Turntables: ${cur.ttCount} → ${cmp.ttCount}</span>
+    `;
+  }else{
+    document.getElementById('compareRightLabel').textContent='Comparison layout';
+    right.innerHTML='<div style="padding:20px;color:var(--muted);">No comparison file loaded yet. Click "Load comparison file…" below.</div>';
+    rightStats.textContent='';
+    document.getElementById('compareDeltas').textContent='Load a comparison file to see deltas.';
+  }
+}
+function loadCompareFile(file){
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const payload=parseProjectPayload(r.result);
+      _compareProject=payload;
+      renderCompareModal();
+      showToast('Comparison loaded: '+(payload.proj?.name||'(unnamed)'));
+    }catch(e){alert('Invalid project file. '+(e?.message||''));}
+  };
+  r.readAsText(file);
+}
+// Spec-compliant split-canvas compare mode. Renders the comparison
+// payload as a static high-res image in a panel beside the live
+// workspace. Mutations are blocked through compareModeBlocking() at
+// every entry point that would change S.
+function compareModeBlocking(){return!!S.compareMode?.enabled;}
+function enterCompareSplitMode(){
+  if(!_compareProject){alert('Load a comparison file first.');return;}
+  // Capture a snapshot of the comparison payload by temporarily
+  // swapping it into S and calling buildCanvas, then restoring S.
+  const saved={
+    objects:S.objects,customs:S.customs,proj:S.proj,libTagPrefs:S.libTagPrefs,
+    notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,
+    conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,
+    dimensions:S.dimensions,selId:S.selId,selIds:new Set(S.selIds),
+    selDimId:S.selDimId,selNoteId:S.selNoteId,
+  };
+  try{
+    S.objects=_compareProject.objects;
+    S.customs=_compareProject.customs;
+    S.proj=_compareProject.proj;
+    S.libTagPrefs=_compareProject.libTagPrefs||{};
+    S.notes=_compareProject.notes||[];
+    S.notesHidden=!!_compareProject.notesHidden;
+    S.labelsHidden=!!_compareProject.labelsHidden;
+    S.conveyorLabelsHidden=_compareProject.conveyorLabelsHidden==null?true:!!_compareProject.conveyorLabelsHidden;
+    S.tagsHidden=!!_compareProject.tagsHidden;
+    S.dimensions=Array.isArray(_compareProject.dimensions)?_compareProject.dimensions:[];
+    S.selId=null;S.selIds=new Set();S.selDimId=null;S.selNoteId=null;
+    const exportState=getCroppedExportState();
+    S.compareMode.canvas=buildCanvas(exportState);
+    S.compareMode.payload=_compareProject;
+  }finally{
+    Object.assign(S,saved);
+  }
+  // Apply state and mount the canvas.
+  S.compareMode.enabled=true;
+  document.body.classList.add('compare-mode-active');
+  const host=document.getElementById('compareCanvasHost');
+  const hdr=document.getElementById('compareCanvasHeader');
+  host.innerHTML='';
+  hdr.innerHTML=`<span style="flex:1;">⇆ Comparison: ${escapeHtml(_compareProject.proj?.name||'(unnamed)')}</span><span style="color:rgba(245,239,222,0.7);font-weight:400;font-size:11px;">read-only · static snapshot</span>`;
+  const img=S.compareMode.canvas;
+  img.style.maxWidth='100%';
+  img.style.maxHeight='calc(100vh - 60px)';
+  img.style.display='block';
+  img.style.borderRadius='6px';
+  host.appendChild(img);
+  closeCompareModal();
+  showToast('Compare mode — Esc to exit');
+}
+function exitCompareSplitMode(){
+  if(!S.compareMode.enabled)return;
+  S.compareMode.enabled=false;
+  S.compareMode.canvas=null;
+  document.body.classList.remove('compare-mode-active');
+  const host=document.getElementById('compareCanvasHost');
+  if(host)host.innerHTML='';
+}
+
+// ── FLOW ANIMATION (Phase 18) ─────────────────────────────────────────
+// Animated particles flowing along powered conveyor paths. Pure demo
+// polish — toggled off by default to spare battery. Uses requestAnimation
+// Frame and a dedicated SVG layer so the world doesn't re-render every
+// frame. Flow direction matches the conveyor's local +X axis after
+// rotation; arc-following on curves uses the same iR/oR/cAng geometry
+// the renderer uses.
+const FLOW_FAMILIES=new Set(['cdlr','bdlr','belt','pbelt','nor-str','nor-cur','nor-merge','nor-spur','chain','tt-pow']);
+function flowEligible(obj){return obj&&obj.type==='conveyor'&&FLOW_FAMILIES.has(obj.family);}
+function flowPathLength(obj){
+  if(obj.isCurve){
+    const r=((obj.iR||0)+(obj.oR||0))/2;
+    return r*Math.PI/180*(obj.cAng||90);
+  }
+  return Number(obj.length)||120;
+}
+function flowPathPointAtT(obj,t){
+  // t in [0,1]. Returns world {x, y} along the conveyor's centerline,
+  // respecting curve geometry + rotation about the object's frame.
+  const{w,h}=getSize(obj);
+  if(obj.isCurve){
+    // Curve geometry: arc pivot at (handedness corner). Reuse the same
+    // logic the renderer uses but simplified for path traversal.
+    const iR=px(obj.iR||24),oR=px(obj.oR||42);
+    const cAng=(obj.cAng||90)*Math.PI/180;
+    const right=(obj.cHand||'right')==='right';
+    const oRpix=oR;
+    // Pivot point (local frame): for right-hand 90° curve, pivot at (0, oR)
+    // For arbitrary cAng, pivot remains at (0, oR) and arc sweeps clockwise from -Y axis.
+    const pivX=right?0:oRpix,pivY=oRpix;
+    const midR=(iR+oR)/2;
+    const a=t*cAng*(right?1:-1);
+    const lx=pivX+midR*Math.sin(a),ly=pivY-midR*Math.cos(a);
+    // Rotate by obj.rot about the object's center.
+    const cx=obj.x+oRpix/2,cy=obj.y+oRpix/2;
+    return rotPt(obj.x+lx,obj.y+ly,cx,cy,obj.rot);
+  }else{
+    // Straight: centerline runs left→right at h/2 in local frame.
+    const lx=t*w,ly=h/2;
+    const cx=obj.x+w/2,cy=obj.y+h/2;
+    return rotPt(obj.x+lx,obj.y+ly,cx,cy,obj.rot);
+  }
+}
+function spawnFlowParticle(obj,now){
+  S.flowAnimation.particles.push({objId:obj.id,t:0,speed:0.18+Math.random()*0.12,bornAt:now,jitter:(Math.random()-0.5)*4});
+}
+function flowAnimTick(now){
+  if(!S.flowAnimation.enabled){return;}
+  const dt=Math.min(0.1,(now-(S.flowAnimation.lastTick||now))/1000);
+  S.flowAnimation.lastTick=now;
+  // Spawn ~1 particle/sec per powered conveyor (jittered).
+  S.objects.forEach(obj=>{
+    if(!flowEligible(obj)||obj.hidden)return;
+    if(Math.random()<dt*1.1)spawnFlowParticle(obj,now);
+  });
+  // Advance particles.
+  const alive=[];
+  for(const p of S.flowAnimation.particles){
+    const obj=S.objects.find(o=>o.id===p.objId);
+    if(!obj||obj.hidden){continue;}
+    p.t+=p.speed*dt;
+    if(p.t>=1)continue;
+    alive.push(p);
+  }
+  S.flowAnimation.particles=alive;
+  // Render particles into the dedicated flowAnimSvg layer.
+  const layer=document.getElementById('flowAnimSvg');
+  if(!layer)return;
+  // Width/height attribute keeps SVG coordinate system 1:1 with workspace pixels
+  const wsW=WS?.scrollWidth||1400;
+  const wsH=WS?.scrollHeight||860;
+  layer.setAttribute('width',wsW);
+  layer.setAttribute('height',wsH);
+  layer.innerHTML='';
+  for(const p of S.flowAnimation.particles){
+    const obj=S.objects.find(o=>o.id===p.objId);if(!obj)continue;
+    const pt=flowPathPointAtT(obj,Math.min(1,p.t));
+    if(!pt)continue;
+    layer.appendChild(svgEl('circle',{cx:pt.x+p.jitter*0.2,cy:pt.y,r:'3.2',fill:'#ff6a18',opacity:String(Math.min(1,3*(1-p.t)*p.t+0.4))}));
+  }
+  if(S.flowAnimation.enabled)S.flowAnimation.frameHandle=requestAnimationFrame(flowAnimTick);
+}
+function toggleFlowAnimation(force){
+  const want=typeof force==='boolean'?force:!S.flowAnimation.enabled;
+  S.flowAnimation.enabled=want;
+  const btn=document.getElementById('animateFlowBtn');
+  if(btn)btn.textContent=want?'■ Stop Flow':'▶ Animate Flow';
+  if(want){
+    S.flowAnimation.lastTick=performance.now();
+    S.flowAnimation.frameHandle=requestAnimationFrame(flowAnimTick);
+  }else{
+    if(S.flowAnimation.frameHandle)cancelAnimationFrame(S.flowAnimation.frameHandle);
+    S.flowAnimation.particles=[];
+    const layer=document.getElementById('flowAnimSvg');
+    if(layer)layer.innerHTML='';
+  }
+}
+
+// ── COMMENTS (Phase 15) ───────────────────────────────────────────────
+// Pinned, resolvable comments on canvas objects. Distinct from notes
+// (which are free-form floating annotations); comments are tied to
+// a specific object id. A speech-bubble indicator badge appears on
+// objects with at least one open comment.
+let _commentTargetObjId=null;
+function getObjectComments(objId,opts={}){
+  return S.comments.filter(c=>c.objectId===objId&&(opts.includeResolved||!c.resolved));
+}
+function getCommentSummary(){
+  const open=S.comments.filter(c=>!c.resolved).length;
+  const resolved=S.comments.filter(c=>c.resolved).length;
+  return{open,resolved,total:S.comments.length};
+}
+function updateCommentsBadge(){
+  const badge=document.getElementById('commentsCountBadge');
+  if(!badge)return;
+  const{open}=getCommentSummary();
+  if(open>0){badge.textContent=String(open);badge.style.display='inline-block';}
+  else badge.style.display='none';
+}
+function openCommentPopover(objId){
+  const obj=S.objects.find(o=>o.id===objId);if(!obj)return;
+  _commentTargetObjId=objId;
+  document.getElementById('commentPopover').classList.remove('hidden');
+  document.getElementById('commentPopoverTitle').textContent='Comments on '+(obj.name||obj.family||obj.type);
+  document.getElementById('commentPopoverObj').textContent='Object: '+(obj.name||obj.family)+(obj.tag?' · #'+obj.tag:'')+' · id '+obj.id;
+  document.getElementById('commentAuthorInput').value=S.commentAuthor||'';
+  document.getElementById('commentBodyInput').value='';
+  renderCommentThread();
+  setTimeout(()=>document.getElementById('commentBodyInput').focus(),50);
+}
+function closeCommentPopover(){
+  document.getElementById('commentPopover').classList.add('hidden');
+  _commentTargetObjId=null;
+}
+function renderCommentThread(){
+  const thread=document.getElementById('commentPopoverThread');if(!thread)return;
+  if(!_commentTargetObjId){thread.innerHTML='';return;}
+  const list=getObjectComments(_commentTargetObjId,{includeResolved:true}).sort((a,b)=>a.timestampMs-b.timestampMs);
+  if(!list.length){thread.innerHTML='<div style="color:var(--muted);padding:8px;text-align:center;">No comments yet.</div>';return;}
+  thread.innerHTML=list.map(c=>{
+    const when=new Date(c.timestampMs).toLocaleString();
+    return`<div data-id="${c.id}" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px;background:${c.resolved?'#f0f0f0':'#fff'};">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <strong style="font-size:12px;color:${c.resolved?'var(--muted)':'var(--text)'};">${escapeHtml(c.author||'(anonymous)')}</strong>
+        <span style="font-size:10px;color:var(--muted);">${escapeHtml(when)}</span>
+        <div style="flex:1;"></div>
+        <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" class="comment-resolved-chk" ${c.resolved?'checked':''}/> Resolved
+        </label>
+        <button class="comment-delete" style="border:1px solid #e8b0ae;background:#fff3f2;color:var(--danger);font-size:10px;padding:2px 6px;border-radius:4px;cursor:pointer;">Delete</button>
+      </div>
+      <div style="font-size:12px;color:${c.resolved?'var(--muted)':'var(--text)'};white-space:pre-wrap;">${escapeHtml(c.body||'')}</div>
+    </div>`;
+  }).join('');
+  thread.querySelectorAll('[data-id]').forEach(row=>{
+    const id=row.dataset.id;
+    row.querySelector('.comment-resolved-chk').addEventListener('change',e=>{toggleCommentResolved(id,e.target.checked);});
+    row.querySelector('.comment-delete').addEventListener('click',()=>{deleteComment(id);});
+  });
+}
+function saveComment(){
+  if(!_commentTargetObjId)return;
+  const author=document.getElementById('commentAuthorInput').value.trim();
+  const body=document.getElementById('commentBodyInput').value.trim();
+  if(!body){showToast('Comment body required');return;}
+  S.commentAuthor=author;
+  S.comments.push({id:uid('cmt'),objectId:_commentTargetObjId,author,body,timestampMs:Date.now(),resolved:false});
+  pushHistory();
+  document.getElementById('commentBodyInput').value='';
+  renderCommentThread();
+  render();
+  updateCommentsBadge();
+}
+function toggleCommentResolved(id,resolved){
+  const c=S.comments.find(c=>c.id===id);if(!c)return;
+  c.resolved=!!resolved;
+  pushHistory();
+  renderCommentThread();
+  renderCommentsList();
+  render();
+  updateCommentsBadge();
+}
+function deleteComment(id){
+  if(!confirm('Delete this comment? This cannot be undone (use Ctrl+Z if needed).'))return;
+  S.comments=S.comments.filter(c=>c.id!==id);
+  pushHistory();
+  renderCommentThread();
+  renderCommentsList();
+  render();
+  updateCommentsBadge();
+}
+function autoResolveCommentsForDeletedObjects(deletedIds){
+  // When an object is deleted, mark its comments resolved with an
+  // orphan flag so undo can restore them cleanly (the plan's rule).
+  if(!Array.isArray(deletedIds)||!deletedIds.length)return;
+  const idSet=new Set(deletedIds);
+  S.comments.forEach(c=>{
+    if(idSet.has(c.objectId)){c.resolved=true;c.orphan=true;}
+  });
+}
+function openCommentsModal(){
+  document.getElementById('commentsModal').classList.remove('hidden');
+  renderCommentsList();
+}
+function closeCommentsModal(){
+  document.getElementById('commentsModal').classList.add('hidden');
+}
+function renderCommentsList(){
+  const list=document.getElementById('commentsList');if(!list)return;
+  const filter=S.commentFilter;
+  let comments=[...S.comments];
+  if(filter==='open')comments=comments.filter(c=>!c.resolved);
+  else if(filter==='resolved')comments=comments.filter(c=>c.resolved);
+  comments.sort((a,b)=>b.timestampMs-a.timestampMs);
+  document.getElementById('commentsCountText').textContent=comments.length+' comment'+(comments.length===1?'':'s');
+  if(!comments.length){
+    list.innerHTML='<div style="color:var(--muted);padding:16px;text-align:center;">No comments to show.</div>';
+    return;
+  }
+  list.innerHTML=comments.map(c=>{
+    const obj=S.objects.find(o=>o.id===c.objectId);
+    const objLabel=obj?(obj.name||obj.family)+(obj.tag?' · #'+obj.tag:''):'(deleted object)';
+    const when=new Date(c.timestampMs).toLocaleString();
+    return`<div data-id="${c.id}" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px;background:${c.resolved?'#f0f0f0':'#fff'};${c.orphan?'opacity:.7;':''}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <strong style="font-size:12px;">${escapeHtml(c.author||'(anonymous)')}</strong>
+        <span style="font-size:10px;color:var(--muted);">${escapeHtml(when)}</span>
+        ${c.resolved?'<span style="font-size:10px;color:var(--success);background:#e8f3ec;border:1px solid #c0d8c8;padding:1px 6px;border-radius:999px;">resolved</span>':''}
+        ${c.orphan?'<span style="font-size:10px;color:var(--muted);background:#f0f0f0;border:1px solid var(--border);padding:1px 6px;border-radius:999px;">orphan</span>':''}
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">on ${escapeHtml(objLabel)}</div>
+      <div style="font-size:12px;color:var(--text);white-space:pre-wrap;margin-bottom:6px;">${escapeHtml(c.body||'')}</div>
+      <div style="display:flex;gap:4px;">
+        ${obj?'<button class="comment-jump" style="font-size:11px;padding:3px 7px;border:1px solid var(--border);background:#fff;cursor:pointer;border-radius:4px;">Open thread</button>':''}
+        <button class="comment-toggle" style="font-size:11px;padding:3px 7px;border:1px solid var(--border);background:#fff;cursor:pointer;border-radius:4px;">${c.resolved?'Re-open':'Resolve'}</button>
+        <button class="comment-del" style="font-size:11px;padding:3px 7px;border:1px solid #e8b0ae;background:#fff3f2;color:var(--danger);cursor:pointer;border-radius:4px;">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('[data-id]').forEach(row=>{
+    const id=row.dataset.id;
+    const c=S.comments.find(x=>x.id===id);if(!c)return;
+    row.querySelector('.comment-jump')?.addEventListener('click',()=>{closeCommentsModal();openCommentPopover(c.objectId);});
+    row.querySelector('.comment-toggle').addEventListener('click',()=>toggleCommentResolved(id,!c.resolved));
+    row.querySelector('.comment-del').addEventListener('click',()=>deleteComment(id));
+  });
+}
+function addOverlayCommentBadge(obj){
+  const open=getObjectComments(obj.id).length;
+  if(!open)return;
+  const a=getAABB(obj);
+  const cx=a.x+10,cy=a.y+10;
+  const g=svgEl('g',{transform:`translate(${cx},${cy})`,'cursor':'pointer','pointer-events':'all'});
+  g.appendChild(svgEl('circle',{cx:0,cy:0,r:'9',fill:'#ff6a18',stroke:'#fff','stroke-width':'1.5'}));
+  const t=svgEl('text',{x:0,y:3,'text-anchor':'middle',fill:'#fff','font-size':'10','font-weight':'800','font-family':'Arial'});
+  t.textContent=open>9?'9+':String(open);
+  g.appendChild(t);
+  g.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();openCommentPopover(obj.id);});
+  OV.appendChild(g);
+}
+
+// ── REVISION HISTORY (Phase 16) ───────────────────────────────────────
+// Labeled snapshots of the full project state. Each revision is a
+// deep-cloned payload in the same shape as a .flowforge file, stored
+// inside the project itself so revisions survive Save → Open. Restore
+// auto-captures the current state first so the action is undoable.
+function captureProjectPayload(){
+  return{
+    proj:JSON.parse(JSON.stringify(S.proj)),
+    objects:JSON.parse(JSON.stringify(S.objects)),
+    customs:JSON.parse(JSON.stringify(S.customs)),
+    libTagPrefs:JSON.parse(JSON.stringify(S.libTagPrefs||{})),
+    notes:JSON.parse(JSON.stringify(S.notes)),
+    notesHidden:!!S.notesHidden,
+    labelsHidden:!!S.labelsHidden,
+    conveyorLabelsHidden:!!S.conveyorLabelsHidden,
+    tagsHidden:!!S.tagsHidden,
+    dimensions:JSON.parse(JSON.stringify(S.dimensions||[])),
+    showThroughput:!!S.showThroughput,
+    throughputDefaults:{...S.throughputDefaults},
+    bomAnnotations:JSON.parse(JSON.stringify(S.bomAnnotations||{})),
+    bomIncludePricing:!!S.bomIncludePricing,
+    bomTaxPct:Number(S.bomTaxPct)||0,
+    comments:JSON.parse(JSON.stringify(S.comments||[])),
+  };
+}
+function saveRevision(label){
+  const cleanLabel=(label||'').trim()||'Revision '+(S.revisions.length+1);
+  const rev={id:uid('rev'),label:cleanLabel,timestampMs:Date.now(),payload:captureProjectPayload()};
+  S.revisions.push(rev);
+  pushHistory();
+  showToast('Saved revision: '+cleanLabel);
+  renderHistoryList();
+  return rev;
+}
+function promptSaveRevision(){
+  const label=prompt('Label for this revision (e.g. "Rev A — initial walkthrough"):','Rev '+String.fromCharCode(65+S.revisions.length));
+  if(label===null)return;
+  saveRevision(label);
+}
+function restoreRevision(id){
+  const rev=S.revisions.find(r=>r.id===id);if(!rev)return false;
+  if(!confirm('Restore "'+rev.label+'"?\n\nThe current layout will be saved as an auto-revision so this is undoable.'))return false;
+  // Auto-capture current state before applying.
+  const autoLabel='Before restoring "'+rev.label+'"';
+  S.revisions.push({id:uid('rev'),label:autoLabel,timestampMs:Date.now(),payload:captureProjectPayload(),auto:true});
+  // Apply the snapshot, then put the revisions array back (applyLoadedProjectData reads from data only).
+  const snapshotRevisions=[...S.revisions];
+  const payload={...rev.payload,
+    proj:rev.payload.proj,
+    customs:rev.payload.customs||[],
+    libTagPrefs:rev.payload.libTagPrefs||{},
+  };
+  applyLoadedProjectData(payload);
+  S.revisions=snapshotRevisions;
+  showToast('Restored: '+rev.label);
+  renderHistoryList();
+  return true;
+}
+function deleteRevision(id){
+  const rev=S.revisions.find(r=>r.id===id);if(!rev)return;
+  if(!confirm('Delete revision "'+rev.label+'"? This cannot be undone.'))return;
+  S.revisions=S.revisions.filter(r=>r.id!==id);
+  pushHistory();
+  renderHistoryList();
+}
+function renameRevision(id){
+  const rev=S.revisions.find(r=>r.id===id);if(!rev)return;
+  const next=prompt('Rename revision:',rev.label);
+  if(next===null||next.trim()===rev.label)return;
+  rev.label=next.trim()||rev.label;
+  pushHistory();
+  renderHistoryList();
+}
+function approximateRevisionSize(rev){
+  try{return new Blob([JSON.stringify(rev.payload)]).size;}catch(e){return 0;}
+}
+function formatBytes(n){
+  if(n<1024)return n+' B';
+  if(n<1024*1024)return (n/1024).toFixed(1)+' KB';
+  return (n/1024/1024).toFixed(2)+' MB';
+}
+function renderHistoryList(){
+  const list=document.getElementById('historyList');if(!list)return;
+  const empty=document.getElementById('historyEmpty');
+  const footer=document.getElementById('historyFooterMeta');
+  if(!S.revisions.length){
+    list.innerHTML='';
+    if(empty)empty.style.display='block';
+    if(footer)footer.textContent='';
+    return;
+  }
+  if(empty)empty.style.display='none';
+  const rows=[...S.revisions].reverse(); // newest first
+  list.innerHTML=rows.map(r=>{
+    const when=new Date(r.timestampMs).toLocaleString();
+    const objCount=Array.isArray(r.payload?.objects)?r.payload.objects.length:'?';
+    const noteCount=Array.isArray(r.payload?.notes)?r.payload.notes.length:'?';
+    return`<div data-id="${r.id}" style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px;padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:#fff;">
+      <div>
+        <div style="font-weight:700;color:var(--text);">${escapeHtml(r.label)}${r.auto?' <span style="color:var(--muted);font-weight:400;font-size:11px;">(auto)</span>':''}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">${escapeHtml(when)} · ${objCount} objects · ${noteCount} notes · ${formatBytes(approximateRevisionSize(r))}</div>
+      </div>
+      <div style="display:flex;gap:5px;">
+        <button class="btn-primary rev-restore" style="padding:4px 9px;font-size:11px;">Restore</button>
+        <button class="rev-rename" style="padding:4px 9px;font-size:11px;border:1px solid var(--border);background:#fff;cursor:pointer;border-radius:5px;">Rename</button>
+        <button class="rev-del" style="padding:4px 9px;font-size:11px;border:1px solid #e8b0ae;background:#fff3f2;color:var(--danger);cursor:pointer;border-radius:5px;">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('[data-id]').forEach(row=>{
+    const id=row.dataset.id;
+    row.querySelector('.rev-restore').addEventListener('click',()=>restoreRevision(id));
+    row.querySelector('.rev-rename').addEventListener('click',()=>renameRevision(id));
+    row.querySelector('.rev-del').addEventListener('click',()=>deleteRevision(id));
+  });
+  if(footer){
+    const total=S.revisions.reduce((s,r)=>s+approximateRevisionSize(r),0);
+    footer.textContent=S.revisions.length+' revision'+(S.revisions.length===1?'':'s')+' · ≈'+formatBytes(total)+' total. Revisions add to file size — use sparingly.';
+  }
+}
+function openHistoryModal(){
+  document.getElementById('historyModal').classList.remove('hidden');
+  renderHistoryList();
+}
+function closeHistoryModal(){
+  document.getElementById('historyModal').classList.add('hidden');
+}
+
+// ── PRESENTATION MODE (Phase 6) ───────────────────────────────────────
+function togglePresentationMode(force){
+  const want=typeof force==='boolean'?force:!S.presentationMode;
+  if(want===S.presentationMode)return;
+  S.presentationMode=want;
+  document.body.classList.toggle('presentation-mode',want);
+  if(want){
+    // Auto-close any open menu/popover that would render under the chrome we hide.
+    if(typeof closeOptionsMenu==='function')closeOptionsMenu();
+    if(typeof closeContextMenu==='function')closeContextMenu();
+  }
+}
+// Auto-exit presentation when any modal-overlay becomes visible — the
+// plan's simpler-rule path. Installed once at DOMContentLoaded.
+function installPresentationModalAutoExit(){
+  const observer=new MutationObserver(muts=>{
+    if(!S.presentationMode)return;
+    for(const m of muts){
+      const el=m.target;
+      if(el?.classList?.contains('modal-overlay')&&!el.classList.contains('hidden')){
+        togglePresentationMode(false);
+        return;
+      }
+    }
+  });
+  document.querySelectorAll('.modal-overlay').forEach(el=>observer.observe(el,{attributes:true,attributeFilter:['class']}));
+}
+
+function loadDemoLayout(key){
+  if(compareModeBlocking()){showToast('Exit compare mode first');return;}
+  if(!DEMO_LAYOUTS[key])return;
+  const hasWork=S.objects.length>0||S.notes.length>0;
+  if(hasWork&&!confirm('Replace the current layout with the "'+DEMO_LAYOUTS[key].proj.name+'" example?\n\nUnsaved changes will be lost (Undo will restore them).'))return;
+  const payload=buildDemoPayload(key);
+  if(!payload){showToast('Demo unavailable');return;}
+  // Snapshot pre-load state in the same shape pushHistory writes so undo
+  // can revert across the demo load (the funnel itself wipes history).
+  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct,comments:S.comments}):null;
+  applyLoadedProjectData(payload);
+  if(prevSnap){
+    S.history.unshift(prevSnap);
+    S.historyIdx=S.history.length-1;
+    updateUndoRedo();
+  }
+  clearAutosave();
+  showToast('Loaded: '+payload.proj.name);
+}
+
 function getLinkedBFOptions(obj){
   if(!obj||obj.type!=='conveyor')return[];
   const linked=new Map();
@@ -5520,6 +7593,16 @@ function bindAll(){
   // Single delegated handler on stable container — never gets destroyed during drag
   IL.addEventListener('pointerdown',e=>{
     if(S.tagMove||S.tagAnchorMove)return;
+    // Phase 10 — drag a selected dimension's endpoint dot.
+    if(S.selDimId&&!S.measureMode){
+      const epHit=findDimensionEndpointAt(e.clientX,e.clientY);
+      if(epHit&&epHit.dimId===S.selDimId){
+        e.preventDefault();e.stopPropagation();
+        S._suppressClick=Date.now()+180;
+        beginDimensionEndpointDrag(epHit,e.clientX,e.clientY);
+        return;
+      }
+    }
     const anchorObj=(e.button===0&&!S.placeMode)?findTagAnchorAt(e.clientX,e.clientY):null;
     if(anchorObj){e.preventDefault();e.stopPropagation();beginMoveTagAnchor(anchorObj);S._suppressClick=Date.now()+180;return;}
     const item=e.target.closest('.ws-item');
@@ -5629,6 +7712,7 @@ function bindAll(){
   WS.addEventListener('dragenter',e=>e.preventDefault());
   WS.addEventListener('dragover',e=>{e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect='copy';});
   WS.addEventListener('drop',e=>{
+    if(compareModeBlocking()){e.preventDefault();showToast('Drop blocked — exit compare mode first');return;}
     e.preventDefault();
     // Standard library item
     const stdData=e.dataTransfer.getData('onapkin-std');
@@ -5663,7 +7747,13 @@ function bindAll(){
     if(S.tagMove){e.preventDefault();e.stopPropagation();commitMoveTag(e.clientX,e.clientY);return;}
     if(S.pendingNoteArrowId&&placePendingNoteArrow(e.clientX,e.clientY)){e.stopPropagation();return;}
     if(S.placeMode){updatePlacementGhost(e.clientX,e.clientY);commitPlacement();return;}
+    // Phase 10 — measure mode intercepts canvas clicks.
+    if(S.measureMode){e.stopPropagation();handleMeasureClick(e.clientX,e.clientY);return;}
+    // Phase 10 — click an existing dimension to select it.
+    const dimHit=findDimensionAt(e.clientX,e.clientY);
+    if(dimHit){S.selDimId=dimHit;sel(null);drawOverlay();return;}
     if(e.ctrlKey||e.metaKey)return;
+    if(S.selDimId){S.selDimId=null;drawOverlay();}
     sel(null);
     if(S.selNoteId){S.selNoteId=null;renderNotes();renderNotesList();}
     closeNotePopover();
@@ -5672,6 +7762,13 @@ function bindAll(){
   // Placement ghost follow
   WS.addEventListener('mousemove',e=>{
     if(S.placeMode){updatePlacementGhost(e.clientX,e.clientY);}
+    // Phase 10 — measure preview tracks the cursor with snap detection.
+    if(S.measureMode){
+      const raw=clientToWS(e.clientX,e.clientY);
+      const p=measureSnap(raw.x,raw.y);
+      S.measurePreview=p;
+      drawOverlay();
+    }
     if(S.tagAnchorMove){
       const obj=S.objects.find(o=>o.id===S.tagAnchorMove.id);
       const p=clientToWS(e.clientX,e.clientY);
@@ -5707,10 +7804,107 @@ function bindAll(){
   // ── TOOLBAR ──
   bindOptionsMenu();
   bindTutorial();
+  document.querySelectorAll('#optionsMenu [data-demo]').forEach(btn=>{
+    btn.addEventListener('click',()=>loadDemoLayout(btn.getAttribute('data-demo')));
+  });
+  document.getElementById('presentationBtn').addEventListener('click',()=>togglePresentationMode(true));
+  document.getElementById('presentationPill').addEventListener('click',()=>togglePresentationMode(false));
+  installPresentationModalAutoExit();
+  // Phase 9 — Layers panel wiring
+  document.getElementById('layersBtn').addEventListener('click',openLayersModal);
+  document.getElementById('layersModalClose').addEventListener('click',closeLayersModal);
+  document.getElementById('layersDoneBtn').addEventListener('click',closeLayersModal);
+  // Phase 10 — Measure tool wiring
+  document.getElementById('measureBtn').addEventListener('click',()=>toggleMeasureMode());
+  // Phase 13 — Compare wiring
+  document.getElementById('compareBtn').addEventListener('click',openCompareModal);
+  document.getElementById('compareModalClose').addEventListener('click',closeCompareModal);
+  document.getElementById('compareCancelBtn').addEventListener('click',closeCompareModal);
+  document.getElementById('compareLoadBtn').addEventListener('click',()=>document.getElementById('compareFileInput').click());
+  document.getElementById('compareFileInput').addEventListener('change',e=>{if(e.target.files[0])loadCompareFile(e.target.files[0]);e.target.value='';});
+  document.getElementById('compareSplitBtn').addEventListener('click',enterCompareSplitMode);
+  document.getElementById('compareBanner').addEventListener('click',exitCompareSplitMode);
+  // Phase 15 — Comments wiring
+  document.getElementById('commentsBtn').addEventListener('click',openCommentsModal);
+  document.getElementById('commentsModalClose').addEventListener('click',closeCommentsModal);
+  document.getElementById('commentsDoneBtn').addEventListener('click',closeCommentsModal);
+  document.querySelectorAll('.comment-filter').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      S.commentFilter=btn.dataset.filter;
+      document.querySelectorAll('.comment-filter').forEach(b=>b.classList.toggle('active',b===btn));
+      renderCommentsList();
+    });
+  });
+  document.getElementById('commentPopoverClose').addEventListener('click',closeCommentPopover);
+  document.getElementById('commentPopoverCancel').addEventListener('click',closeCommentPopover);
+  document.getElementById('commentPopoverSave').addEventListener('click',saveComment);
+  updateCommentsBadge();
+  // Phase 16 — Revision history wiring
+  document.getElementById('saveRevisionBtn').addEventListener('click',promptSaveRevision);
+  document.getElementById('historyBtn').addEventListener('click',openHistoryModal);
+  document.getElementById('historyModalClose').addEventListener('click',closeHistoryModal);
+  document.getElementById('historyDoneBtn').addEventListener('click',closeHistoryModal);
+  // Phase 17 — BOM Editor wiring
+  document.getElementById('bomEditorClose').addEventListener('click',closeBomEditor);
+  document.getElementById('bomEditorCancel').addEventListener('click',closeBomEditor);
+  document.getElementById('bomIncludePricingChk').addEventListener('change',e=>{S.bomIncludePricing=e.target.checked;renderBomEditor();});
+  document.getElementById('bomTaxInput').addEventListener('input',e=>{S.bomTaxPct=Number(e.target.value)||0;renderBomEditor();});
+  document.getElementById('bomEditorExport').addEventListener('click',()=>{
+    if(!_bomEditorContext)return;
+    const ctx=_bomEditorContext;
+    closeBomEditor();
+    pushHistory();
+    exportBOMHTML(ctx.rows,ctx.useFullQuote);
+  });
+  // Phase 11 — Throughput wiring (toggle + defaults + per-object overrides + collapsible section)
+  document.getElementById('showThroughputBtn').addEventListener('click',()=>toggleShowThroughput());
+  document.getElementById('animateFlowBtn').addEventListener('click',()=>toggleFlowAnimation());
+  const tpHook=(inputId,key)=>{
+    const el=document.getElementById(inputId);if(!el)return;
+    el.addEventListener('input',()=>{
+      const v=Number(el.value);
+      if(Number.isFinite(v)&&v>=0)S.throughputDefaults[key]=v;
+      drawOverlay();syncProps();
+    });
+  };
+  tpHook('tpDefSpeed','speedFpm');
+  tpHook('tpDefCaseLen','caseLenIn');
+  tpHook('tpDefCaseGap','caseGapIn');
+  const tpObjHook=(inputId,key)=>{
+    const el=document.getElementById(inputId);if(!el)return;
+    el.addEventListener('input',()=>{
+      const obj=S.objects.find(o=>o.id===S.selId);if(!obj)return;
+      const v=el.value===''?null:Number(el.value);
+      if(!obj.throughput)obj.throughput={};
+      if(v==null||!Number.isFinite(v)||v<=0)delete obj.throughput[key]; else obj.throughput[key]=v;
+      if(!Object.keys(obj.throughput).length)delete obj.throughput;
+      drawOverlay();
+      const est=document.getElementById('tpEstimate');
+      if(est&&isPoweredConveyor(obj))est.textContent='Est. '+computeThroughput(obj).toLocaleString()+' cases/hr';
+    });
+    el.addEventListener('change',()=>pushHistory());
+  };
+  tpObjHook('pTpSpeed','speedFpm');
+  tpObjHook('pTpCaseLen','caseLenIn');
+  tpObjHook('pTpCaseGap','caseGapIn');
+  const tpSec=document.getElementById('throughputSecTitle');
+  if(tpSec){
+    tpSec.addEventListener('click',()=>{
+      const f=document.getElementById('throughputFields');
+      const c=document.getElementById('throughputCollapseChevron');
+      const collapsed=f.classList.toggle('hidden');
+      if(c)c.textContent=collapsed?'▸':'▾';
+    });
+  }
+  syncThroughputOptionsUI();
   document.getElementById('newBtn').addEventListener('click',()=>{
     if(!confirm('Start a new layout? Unsaved changes will be lost.'))return;
     S.objects=[];S.selId=null;S.selIds.clear();S.tagMove=null;S.tagAnchorMove=null;S.history=[];S.historyIdx=-1;
     S.notes=[];S.notesHidden=false;S.labelsHidden=false;S.conveyorLabelsHidden=true;S.tagsHidden=false;S.selNoteId=null;closeNotePopover();
+    S.dimensions=[];S.selDimId=null;S.measureMode=null;S.measurePreview=null;
+    S.revisions=[];
+    S.bomAnnotations={};S.bomIncludePricing=false;S.bomTaxPct=0;
+    S.comments=[];
     S.proj={name:'FlowForge Project',quote:'',date:new Date().toISOString().slice(0,10),notes:''};
     syncProjFields();render();renderNotes();syncMarkupToggleButtons();syncOptionsMenuState();pushHistory();clearAutosave();
   });
@@ -5722,6 +7916,16 @@ function bindAll(){
   document.getElementById('exportBtn').addEventListener('click',openExportModal);
   document.getElementById('exportCancelBtn').addEventListener('click',()=>document.getElementById('exportModal').classList.add('hidden'));
   document.getElementById('exportContinueBtn').addEventListener('click',exportModalContinue);
+  // Phase 12 — show/hide cover-page options when PDF is selected.
+  document.querySelectorAll('input[name="expFmt"]').forEach(r=>{
+    r.addEventListener('change',()=>{
+      document.getElementById('exportPdfOptions').style.display=document.querySelector('input[name="expFmt"]:checked').value==='pdf'?'block':'none';
+    });
+  });
+  // Phase 14 — show/hide tile sub-options on checkbox change.
+  document.getElementById('expTileMode').addEventListener('change',e=>{
+    document.getElementById('expTileOptions').style.display=e.target.checked?'block':'none';
+  });
   document.getElementById('exportNotesYesBtn').addEventListener('click',()=>{
     // Keep pending export context so closing Notes returns to the export confirmation.
     document.getElementById('exportNotesModal').classList.add('hidden');
@@ -5819,14 +8023,17 @@ function bindAll(){
   // Project fields
   let projEditStart='';
   const captureProjStart=()=>{projEditStart=JSON.stringify(S.proj);};
-  ['pName','pQuote','pDate','pNotes'].forEach(id=>{
+  ['pName','pQuote','pDate','pNotes','pCustomer','pPreparedBy'].forEach(id=>{
     const field=document.getElementById(id);
+    if(!field)return;
     field.addEventListener('focus',captureProjStart);
     field.addEventListener('input',()=>{
       S.proj.name=document.getElementById('pName').value;
       S.proj.quote=document.getElementById('pQuote').value;
       S.proj.date=document.getElementById('pDate').value;
       S.proj.notes=document.getElementById('pNotes').value;
+      S.proj.customer=document.getElementById('pCustomer').value;
+      S.proj.preparedBy=document.getElementById('pPreparedBy').value;
       syncProjFields();
     });
     field.addEventListener('change',()=>{
@@ -5922,14 +8129,26 @@ function bindAll(){
       if(isOptionsMenuOpen()){closeOptionsMenu();return;}
       if(S.placeMode){clearPlacement();return;}
       if(S.llActive){deactivateLL(S.llActive);return;}
+      if(S.measureMode){toggleMeasureMode(false);return;}
+      if(S.compareMode?.enabled){exitCompareSplitMode();return;}
       const kbdOl=document.getElementById('kbdOverlay');
       if(!kbdOl.classList.contains('hidden')){kbdOl.classList.add('hidden');return;}
+      // Esc with no other modal-cursor mode pending: exit presentation if active, else clear selection.
+      if(S.presentationMode){togglePresentationMode(false);return;}
+      if(S.selDimId){S.selDimId=null;drawOverlay();return;}
       closeContextMenu();sel(null);return;
+    }
+    // Shift+P toggles presentation mode (only outside input fields).
+    if(e.shiftKey&&(e.key==='P'||e.key==='p')&&!e.ctrlKey&&!e.metaKey&&!inInput){
+      e.preventDefault();togglePresentationMode();return;
     }
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'&&!e.shiftKey){e.preventDefault();saveProj();return;}
     if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='e'){e.preventDefault();openExportModal();return;}
     if(inInput)return;
     if((e.ctrlKey||e.metaKey)&&(e.key==='a'||e.key==='A')){e.preventDefault();selectAll();return;}
+    // Phase 8 — group / ungroup current selection.
+    if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&(e.key==='g'||e.key==='G')){e.preventDefault();groupObjects([...S.selIds]);return;}
+    if((e.ctrlKey||e.metaKey)&&e.shiftKey&&(e.key==='g'||e.key==='G')){e.preventDefault();ungroupObjects([...S.selIds]);return;}
     if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undo();return;}
     if((e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Y')){e.preventDefault();redo();return;}
     if((e.ctrlKey||e.metaKey)&&e.key==='0'){e.preventDefault();zoomFit();return;}
@@ -5950,6 +8169,7 @@ function bindAll(){
       return;
     }
     if(e.key==='Delete'||e.key==='Backspace'){
+      if(S.selDimId){deleteSelectedDimension();return;}
       if(S.selNoteId){deleteNote(S.selNoteId);return;}
       if(obj){delSel();pushHistory();}return;
     }
@@ -6463,6 +8683,8 @@ let _pendingExport=null;
 let _pendingExportPreview=null;
 function openExportModal(){
   document.getElementById('exportModal').classList.remove('hidden');
+  // Phase 12 — sync the PDF-options panel visibility to the current radio.
+  document.getElementById('exportPdfOptions').style.display=document.querySelector('input[name="expFmt"]:checked')?.value==='pdf'?'block':'none';
 }
 function updateExportNotesSummary(){
   if(!_pendingExport)return;
@@ -6483,7 +8705,14 @@ function updateExportNotesSummary(){
 function exportModalContinue(){
   const fmt=document.querySelector('input[name="expFmt"]:checked').value;
   const area=document.querySelector('input[name="expArea"]:checked').value;
-  _pendingExport={fmt,area};
+  const includeCover=fmt==='pdf'&&document.getElementById('expIncludeCover').checked;
+  const tileMode=fmt==='pdf'&&document.getElementById('expTileMode').checked;
+  const tileOpts=tileMode?{
+    pageSize:document.getElementById('expPageSize').value,
+    orient:document.getElementById('expOrient').value,
+    scaleStr:document.getElementById('expScale').value,
+  }:null;
+  _pendingExport={fmt,area,includeCover,tileMode,tileOpts};
   document.getElementById('exportModal').classList.add('hidden');
   updateExportNotesSummary();
   document.getElementById('exportNotesModal').classList.remove('hidden');
@@ -6552,8 +8781,19 @@ function finalizePreviewExport(){
         const a=document.createElement('a');a.href=dataUrl||canvas.toDataURL('image/png');a.download=name;document.body.appendChild(a);a.click();a.remove();
         showToast('PNG exported ('+area+')');
       }else{
-        const blob=buildPdfBlobFromCanvas(canvas);
-        dl(blob,name);showToast('PDF exported ('+area+')');
+        // Phase 12 — include cover page first when enabled.
+        // Phase 14 — when tile mode is on, generate a key plan + N tile pages.
+        const includeCover=_pendingExport?.includeCover;
+        const tileMode=_pendingExport?.tileMode;
+        let pages;
+        if(tileMode){
+          const tilePages=buildTilingPages(_pendingExport.tileOpts);
+          pages=includeCover?[buildCoverCanvas(canvas),...tilePages]:tilePages;
+        }else{
+          pages=includeCover?[buildCoverCanvas(canvas),canvas]:[canvas];
+        }
+        const blob=buildPdfBlobFromCanvases(pages);
+        dl(blob,name);showToast('PDF exported'+(includeCover?' with cover':'')+(tileMode?' (tiled, '+(pages.length-(includeCover?1:0))+' pages)':' ('+area+')'));
       }
       _pendingExportPreview=null;
       _pendingExport=null;
