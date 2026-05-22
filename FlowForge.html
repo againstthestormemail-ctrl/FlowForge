@@ -543,6 +543,29 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
 .tutorial-actions button:disabled{opacity:.45;cursor:not-allowed;}
 .tutorial-actions .btn-primary{background:var(--blue);border-color:var(--blue);color:#fff;}
 
+/* ── PRESENTATION MODE (Phase 6) ──
+   Chrome-hide for projector demos. Topbar, side panels, canvas
+   toolbar, and zoom bar collapse so the cream workspace fills the
+   viewport. Selection, drag, rotation still work — this is a
+   visibility toggle, not read-only. */
+body.presentation-mode #topbar,
+body.presentation-mode #libPanel,
+body.presentation-mode #customPanel,
+body.presentation-mode #propsPanel,
+body.presentation-mode #shell .canvas-toolbar,
+body.presentation-mode #shell .zoom-bar{display:none!important;}
+body.presentation-mode #shell{grid-template-columns:1fr;height:100vh;padding:0;gap:0;}
+body.presentation-mode #canvas-wrap{border-radius:0;}
+#presentationPill{
+  position:fixed;top:16px;right:16px;z-index:9999;display:none;
+  background:var(--forge-charcoal);color:var(--forge-cream);
+  padding:8px 14px;border-radius:999px;font:600 12px/1 'Segoe UI',system-ui,sans-serif;
+  letter-spacing:.3px;cursor:pointer;border:1px solid var(--forge-orange);
+  box-shadow:0 4px 16px rgba(0,0,0,.3);
+}
+#presentationPill:hover{background:var(--forge-charcoal-dark);}
+body.presentation-mode #presentationPill{display:block;}
+
 /* ── TOAST ── */
 .toast{
   position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
@@ -585,6 +608,7 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
       <button class="options-item" id="openBtn" data-close-menu="true" role="menuitem">Open</button>
       <button class="options-item" id="bomBtn" data-close-menu="true" role="menuitem" aria-label="Export BOM">BOM</button>
       <div class="options-section-title">Display</div>
+      <button class="options-item" id="presentationBtn" data-close-menu="true" role="menuitem" title="Hide all UI chrome for projector demos (Shift+P)">Presentation Mode</button>
       <button class="options-item" id="hideLabelsBtn" aria-label="Show conveyor labels" title="Show/hide BF and conveyor type labels inside each conveyor box" role="menuitem">Show Conveyor Labels</button>
       <button class="options-item" id="hideTagsBtn" aria-label="Hide tags" title="Show/hide tag bubbles and tag leader lines in layout and exports" role="menuitem">Hide Tags</button>
       <label class="options-field"><span>Units</span>
@@ -1016,6 +1040,8 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
   </div>
 </div>
 
+<div id="presentationPill" role="button" tabindex="0" aria-label="Exit presentation mode (Esc)">Presentation — Esc to exit</div>
+
 <script>
 'use strict';
 /* ══════════════════════════════════════════════════════════════════
@@ -1160,6 +1186,7 @@ const S={
   pendingNoteArrowId:null,
   tagMove:null, // {id, previewX, previewY} while placing a moved tag bubble
   tagAnchorMove:null, // {id, previewX, previewY, startedAt} while placing a tag leader anchor
+  presentationMode:false, // Phase 6 — UI chrome hidden for projector demos. Transient (not persisted).
 };
 
 // DOM refs
@@ -5288,6 +5315,34 @@ function buildDemoPayload(key){
     tagsHidden:false,
   };
 }
+// ── PRESENTATION MODE (Phase 6) ───────────────────────────────────────
+function togglePresentationMode(force){
+  const want=typeof force==='boolean'?force:!S.presentationMode;
+  if(want===S.presentationMode)return;
+  S.presentationMode=want;
+  document.body.classList.toggle('presentation-mode',want);
+  if(want){
+    // Auto-close any open menu/popover that would render under the chrome we hide.
+    if(typeof closeOptionsMenu==='function')closeOptionsMenu();
+    if(typeof closeContextMenu==='function')closeContextMenu();
+  }
+}
+// Auto-exit presentation when any modal-overlay becomes visible — the
+// plan's simpler-rule path. Installed once at DOMContentLoaded.
+function installPresentationModalAutoExit(){
+  const observer=new MutationObserver(muts=>{
+    if(!S.presentationMode)return;
+    for(const m of muts){
+      const el=m.target;
+      if(el?.classList?.contains('modal-overlay')&&!el.classList.contains('hidden')){
+        togglePresentationMode(false);
+        return;
+      }
+    }
+  });
+  document.querySelectorAll('.modal-overlay').forEach(el=>observer.observe(el,{attributes:true,attributeFilter:['class']}));
+}
+
 function loadDemoLayout(key){
   if(!DEMO_LAYOUTS[key])return;
   const hasWork=S.objects.length>0||S.notes.length>0;
@@ -5853,6 +5908,9 @@ function bindAll(){
   document.querySelectorAll('#optionsMenu [data-demo]').forEach(btn=>{
     btn.addEventListener('click',()=>loadDemoLayout(btn.getAttribute('data-demo')));
   });
+  document.getElementById('presentationBtn').addEventListener('click',()=>togglePresentationMode(true));
+  document.getElementById('presentationPill').addEventListener('click',()=>togglePresentationMode(false));
+  installPresentationModalAutoExit();
   document.getElementById('newBtn').addEventListener('click',()=>{
     if(!confirm('Start a new layout? Unsaved changes will be lost.'))return;
     S.objects=[];S.selId=null;S.selIds.clear();S.tagMove=null;S.tagAnchorMove=null;S.history=[];S.historyIdx=-1;
@@ -6070,7 +6128,13 @@ function bindAll(){
       if(S.llActive){deactivateLL(S.llActive);return;}
       const kbdOl=document.getElementById('kbdOverlay');
       if(!kbdOl.classList.contains('hidden')){kbdOl.classList.add('hidden');return;}
+      // Esc with no other modal-cursor mode pending: exit presentation if active, else clear selection.
+      if(S.presentationMode){togglePresentationMode(false);return;}
       closeContextMenu();sel(null);return;
+    }
+    // Shift+P toggles presentation mode (only outside input fields).
+    if(e.shiftKey&&(e.key==='P'||e.key==='p')&&!e.ctrlKey&&!e.metaKey&&!inInput){
+      e.preventDefault();togglePresentationMode();return;
     }
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'&&!e.shiftKey){e.preventDefault();saveProj();return;}
     if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='e'){e.preventDefault();openExportModal();return;}
