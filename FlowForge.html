@@ -620,6 +620,7 @@ body.presentation-mode #presentationPill{display:block;}
     <div class="tb-div"></div>
     <button class="tb-btn accent" id="exportBtn">Export</button>
     <button class="tb-btn" id="notesBtn" aria-label="Open notes">Notes</button>
+    <button class="tb-btn" id="commentsBtn" title="View all comments">💬 Comments <span id="commentsCountBadge" style="display:none;background:var(--forge-orange);color:#fff;border-radius:999px;padding:0 6px;font-size:10px;font-weight:800;margin-left:2px;"></span></button>
     <button class="tb-btn" id="saveRevisionBtn" title="Save a labeled snapshot of the current layout">📌 Revision</button>
     <button class="tb-btn" id="historyBtn" title="View saved revisions">🕘 History</button>
     <button class="tb-btn" id="hideNotesBtn" aria-label="Hide notes" title="Hide/show notes in layout and exports">Hide Notes</button>
@@ -1101,6 +1102,49 @@ body.presentation-mode #presentationPill{display:block;}
   </div>
 </div>
 
+<div class="modal-overlay hidden" id="commentsModal">
+  <div class="modal" style="width:560px;max-height:82vh;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title">Comments</div>
+      <button class="modal-close" id="commentsModalClose">×</button>
+    </div>
+    <div class="modal-body" style="font-size:13px;line-height:1.45;padding:8px 14px;">
+      <div style="display:flex;gap:6px;margin-bottom:10px;">
+        <button class="ctb-btn comment-filter active" data-filter="all">All</button>
+        <button class="ctb-btn comment-filter" data-filter="open">Open</button>
+        <button class="ctb-btn comment-filter" data-filter="resolved">Resolved</button>
+        <div style="flex:1;"></div>
+        <span id="commentsCountText" style="font-size:11px;color:var(--muted);align-self:center;"></span>
+      </div>
+      <div id="commentsList" style="max-height:56vh;overflow-y:auto;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" id="commentsDoneBtn">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="commentPopover">
+  <div class="modal" style="width:420px;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title" id="commentPopoverTitle">Comment</div>
+      <button class="modal-close" id="commentPopoverClose">×</button>
+    </div>
+    <div class="modal-body" style="padding:10px 14px;">
+      <div id="commentPopoverObj" style="font-size:11px;color:var(--muted);margin-bottom:8px;"></div>
+      <div id="commentPopoverThread" style="max-height:40vh;overflow-y:auto;margin-bottom:10px;"></div>
+      <div style="border-top:1px solid var(--border);padding-top:8px;">
+        <label class="prop-row"><span class="prop-label">Author</span><input id="commentAuthorInput" placeholder="(optional)"/></label>
+        <label class="prop-row"><span class="prop-label">Comment</span><textarea id="commentBodyInput" rows="3" placeholder="Write your comment…"></textarea></label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" id="commentPopoverCancel">Cancel</button>
+      <button class="btn-primary" id="commentPopoverSave">Add comment</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="bomEditorModal">
   <div class="modal" style="width:920px;max-height:88vh;">
     <div class="modal-hdr">
@@ -1338,6 +1382,9 @@ const S={
   bomAnnotations:{}, // Phase 17 — per-BOM-line {leadTime, vendor, listPrice, markupPct} keyed by family+name+BF+shape.
   bomIncludePricing:false, // Phase 17 — whether the exported HTML carries price columns.
   bomTaxPct:0, // Phase 17 — global tax % applied to subtotal.
+  comments:[], // Phase 15 — pinned, resolvable per-object comments {id,objectId,author,body,timestampMs,resolved,orphan?}.
+  commentFilter:'open', // Phase 15 — all/open/resolved filter for the global Comments panel.
+  commentAuthor:'', // Phase 15 — last author entered, suggested on the next comment.
 };
 
 // DOM refs
@@ -2651,6 +2698,8 @@ function drawOverlay(){
   // Tags draw above conveyor labels.
   S.objects.filter(o=>o.type==='conveyor'&&!o.isXfer).forEach(addOverlayTag);
   S.objects.filter(o=>o.type==='conveyor'&&!o.isXfer&&!o.isTurntable&&shouldShowInlineBF(o)).forEach(addOverlayBF);
+  // Phase 15 — comment indicator badges on objects with open comments.
+  S.objects.forEach(addOverlayCommentBadge);
 }
 function addOverlayBF(obj){
   if(!obj.bf)return;
@@ -3639,8 +3688,12 @@ function delSel(){
     S.objects.forEach(o=>{if(isTCarCar(o)&&o.railId===id)clearTCarAttachment(o);});
     S.objects=S.objects.filter(o=>o.id!==id);
   });
+  // Phase 15 — auto-resolve any comments on deleted objects (orphan
+  // flagged so undo can restore them cleanly).
+  autoResolveCommentsForDeletedObjects(idsToDelete);
   S.selId=null;S.selIds.clear();
   reconcileCustomQuantities();render();syncProps();renderCustLib();
+  if(typeof updateCommentsBadge==='function')updateCommentsBadge();
 }
 
 // ══════════════════════════════════════════════════
@@ -5544,7 +5597,7 @@ function buildFullCanvas(){
 // ══════════════════════════════════════════════════
 function saveProj(){
   askFileName('Save Project',defaultFileName('flowforge'),'flowforge',name=>{
-    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct});
+    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct,comments:S.comments});
     dl(new Blob([data],{type:'application/json'}),name);showToast('Project saved');
     clearAutosave();
   });
@@ -5584,7 +5637,7 @@ function loadCust(file){
 // HISTORY (UNDO/REDO)
 // ══════════════════════════════════════════════════
 function pushHistory(){
-  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct});
+  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct,comments:S.comments});
   S.history=S.history.slice(0,S.historyIdx+1);
   S.history.push(snap);S.historyIdx=S.history.length-1;
   if(S.history.length>80){S.history.shift();S.historyIdx--;}
@@ -5738,6 +5791,7 @@ function showContextMenu(e,obj){
     ...(obj.type==='conveyor'&&hasMovedTagAnchor(obj)?[{icon:'⌖',label:'Reset Tag Anchor',fn:()=>{resetTagAnchor(obj,{keepTagPosition:true});pushHistory();render();syncProps();}}]:[]),
     ...(obj.type==='conveyor'&&linkedBFOptions.length?[{icon:'⇄',label:'Match BF to Linked',fn:()=>matchBFToLinked(obj)}]:[]),
     ...(obj.type==='conveyor'?[{icon:'🔓',label:obj.freeMove?'Re-enable Linking':'Free Move (No Linking)',fn:()=>toggleFreeMove(obj)}]:[]),
+    {icon:'💬',label:'Add Comment',fn:()=>openCommentPopover(obj.id)},
     {icon:'⬆️',label:'Move Up in Stack',fn:()=>moveObjectInStack(obj,1)},
     {icon:'⬇️',label:'Move Down in Stack',fn:()=>moveObjectInStack(obj,-1)},
     {sep:true},
@@ -5811,6 +5865,7 @@ function parseProjectPayload(raw){
     bomAnnotations:isPlainObject(d.bomAnnotations)?d.bomAnnotations:{},
     bomIncludePricing:!!d.bomIncludePricing,
     bomTaxPct:Number(d.bomTaxPct)||0,
+    comments:Array.isArray(d.comments)?d.comments.filter(c=>isPlainObject(c)&&typeof c.id==='string'):[],
   };
 }
 function applyLoadedProjectData(data){
@@ -5829,6 +5884,7 @@ function applyLoadedProjectData(data){
   S.bomAnnotations=isPlainObject(data.bomAnnotations)?data.bomAnnotations:{};
   S.bomIncludePricing=!!data.bomIncludePricing;
   S.bomTaxPct=Number(data.bomTaxPct)||0;
+  S.comments=Array.isArray(data.comments)?data.comments:[];
   S.notesHidden=!!data.notesHidden||!!data.labelsHidden;
   S.labelsHidden=S.notesHidden;
   S.conveyorLabelsHidden=data.conveyorLabelsHidden==null?true:!!data.conveyorLabelsHidden;
@@ -6306,6 +6362,169 @@ function drawDimensions(){
   }
 }
 
+// ── COMMENTS (Phase 15) ───────────────────────────────────────────────
+// Pinned, resolvable comments on canvas objects. Distinct from notes
+// (which are free-form floating annotations); comments are tied to
+// a specific object id. A speech-bubble indicator badge appears on
+// objects with at least one open comment.
+let _commentTargetObjId=null;
+function getObjectComments(objId,opts={}){
+  return S.comments.filter(c=>c.objectId===objId&&(opts.includeResolved||!c.resolved));
+}
+function getCommentSummary(){
+  const open=S.comments.filter(c=>!c.resolved).length;
+  const resolved=S.comments.filter(c=>c.resolved).length;
+  return{open,resolved,total:S.comments.length};
+}
+function updateCommentsBadge(){
+  const badge=document.getElementById('commentsCountBadge');
+  if(!badge)return;
+  const{open}=getCommentSummary();
+  if(open>0){badge.textContent=String(open);badge.style.display='inline-block';}
+  else badge.style.display='none';
+}
+function openCommentPopover(objId){
+  const obj=S.objects.find(o=>o.id===objId);if(!obj)return;
+  _commentTargetObjId=objId;
+  document.getElementById('commentPopover').classList.remove('hidden');
+  document.getElementById('commentPopoverTitle').textContent='Comments on '+(obj.name||obj.family||obj.type);
+  document.getElementById('commentPopoverObj').textContent='Object: '+(obj.name||obj.family)+(obj.tag?' · #'+obj.tag:'')+' · id '+obj.id;
+  document.getElementById('commentAuthorInput').value=S.commentAuthor||'';
+  document.getElementById('commentBodyInput').value='';
+  renderCommentThread();
+  setTimeout(()=>document.getElementById('commentBodyInput').focus(),50);
+}
+function closeCommentPopover(){
+  document.getElementById('commentPopover').classList.add('hidden');
+  _commentTargetObjId=null;
+}
+function renderCommentThread(){
+  const thread=document.getElementById('commentPopoverThread');if(!thread)return;
+  if(!_commentTargetObjId){thread.innerHTML='';return;}
+  const list=getObjectComments(_commentTargetObjId,{includeResolved:true}).sort((a,b)=>a.timestampMs-b.timestampMs);
+  if(!list.length){thread.innerHTML='<div style="color:var(--muted);padding:8px;text-align:center;">No comments yet.</div>';return;}
+  thread.innerHTML=list.map(c=>{
+    const when=new Date(c.timestampMs).toLocaleString();
+    return`<div data-id="${c.id}" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px;background:${c.resolved?'#f0f0f0':'#fff'};">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <strong style="font-size:12px;color:${c.resolved?'var(--muted)':'var(--text)'};">${escapeHtml(c.author||'(anonymous)')}</strong>
+        <span style="font-size:10px;color:var(--muted);">${escapeHtml(when)}</span>
+        <div style="flex:1;"></div>
+        <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" class="comment-resolved-chk" ${c.resolved?'checked':''}/> Resolved
+        </label>
+        <button class="comment-delete" style="border:1px solid #e8b0ae;background:#fff3f2;color:var(--danger);font-size:10px;padding:2px 6px;border-radius:4px;cursor:pointer;">Delete</button>
+      </div>
+      <div style="font-size:12px;color:${c.resolved?'var(--muted)':'var(--text)'};white-space:pre-wrap;">${escapeHtml(c.body||'')}</div>
+    </div>`;
+  }).join('');
+  thread.querySelectorAll('[data-id]').forEach(row=>{
+    const id=row.dataset.id;
+    row.querySelector('.comment-resolved-chk').addEventListener('change',e=>{toggleCommentResolved(id,e.target.checked);});
+    row.querySelector('.comment-delete').addEventListener('click',()=>{deleteComment(id);});
+  });
+}
+function saveComment(){
+  if(!_commentTargetObjId)return;
+  const author=document.getElementById('commentAuthorInput').value.trim();
+  const body=document.getElementById('commentBodyInput').value.trim();
+  if(!body){showToast('Comment body required');return;}
+  S.commentAuthor=author;
+  S.comments.push({id:uid('cmt'),objectId:_commentTargetObjId,author,body,timestampMs:Date.now(),resolved:false});
+  pushHistory();
+  document.getElementById('commentBodyInput').value='';
+  renderCommentThread();
+  render();
+  updateCommentsBadge();
+}
+function toggleCommentResolved(id,resolved){
+  const c=S.comments.find(c=>c.id===id);if(!c)return;
+  c.resolved=!!resolved;
+  pushHistory();
+  renderCommentThread();
+  renderCommentsList();
+  render();
+  updateCommentsBadge();
+}
+function deleteComment(id){
+  if(!confirm('Delete this comment? This cannot be undone (use Ctrl+Z if needed).'))return;
+  S.comments=S.comments.filter(c=>c.id!==id);
+  pushHistory();
+  renderCommentThread();
+  renderCommentsList();
+  render();
+  updateCommentsBadge();
+}
+function autoResolveCommentsForDeletedObjects(deletedIds){
+  // When an object is deleted, mark its comments resolved with an
+  // orphan flag so undo can restore them cleanly (the plan's rule).
+  if(!Array.isArray(deletedIds)||!deletedIds.length)return;
+  const idSet=new Set(deletedIds);
+  S.comments.forEach(c=>{
+    if(idSet.has(c.objectId)){c.resolved=true;c.orphan=true;}
+  });
+}
+function openCommentsModal(){
+  document.getElementById('commentsModal').classList.remove('hidden');
+  renderCommentsList();
+}
+function closeCommentsModal(){
+  document.getElementById('commentsModal').classList.add('hidden');
+}
+function renderCommentsList(){
+  const list=document.getElementById('commentsList');if(!list)return;
+  const filter=S.commentFilter;
+  let comments=[...S.comments];
+  if(filter==='open')comments=comments.filter(c=>!c.resolved);
+  else if(filter==='resolved')comments=comments.filter(c=>c.resolved);
+  comments.sort((a,b)=>b.timestampMs-a.timestampMs);
+  document.getElementById('commentsCountText').textContent=comments.length+' comment'+(comments.length===1?'':'s');
+  if(!comments.length){
+    list.innerHTML='<div style="color:var(--muted);padding:16px;text-align:center;">No comments to show.</div>';
+    return;
+  }
+  list.innerHTML=comments.map(c=>{
+    const obj=S.objects.find(o=>o.id===c.objectId);
+    const objLabel=obj?(obj.name||obj.family)+(obj.tag?' · #'+obj.tag:''):'(deleted object)';
+    const when=new Date(c.timestampMs).toLocaleString();
+    return`<div data-id="${c.id}" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px;background:${c.resolved?'#f0f0f0':'#fff'};${c.orphan?'opacity:.7;':''}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <strong style="font-size:12px;">${escapeHtml(c.author||'(anonymous)')}</strong>
+        <span style="font-size:10px;color:var(--muted);">${escapeHtml(when)}</span>
+        ${c.resolved?'<span style="font-size:10px;color:var(--success);background:#e8f3ec;border:1px solid #c0d8c8;padding:1px 6px;border-radius:999px;">resolved</span>':''}
+        ${c.orphan?'<span style="font-size:10px;color:var(--muted);background:#f0f0f0;border:1px solid var(--border);padding:1px 6px;border-radius:999px;">orphan</span>':''}
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">on ${escapeHtml(objLabel)}</div>
+      <div style="font-size:12px;color:var(--text);white-space:pre-wrap;margin-bottom:6px;">${escapeHtml(c.body||'')}</div>
+      <div style="display:flex;gap:4px;">
+        ${obj?'<button class="comment-jump" style="font-size:11px;padding:3px 7px;border:1px solid var(--border);background:#fff;cursor:pointer;border-radius:4px;">Open thread</button>':''}
+        <button class="comment-toggle" style="font-size:11px;padding:3px 7px;border:1px solid var(--border);background:#fff;cursor:pointer;border-radius:4px;">${c.resolved?'Re-open':'Resolve'}</button>
+        <button class="comment-del" style="font-size:11px;padding:3px 7px;border:1px solid #e8b0ae;background:#fff3f2;color:var(--danger);cursor:pointer;border-radius:4px;">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('[data-id]').forEach(row=>{
+    const id=row.dataset.id;
+    const c=S.comments.find(x=>x.id===id);if(!c)return;
+    row.querySelector('.comment-jump')?.addEventListener('click',()=>{closeCommentsModal();openCommentPopover(c.objectId);});
+    row.querySelector('.comment-toggle').addEventListener('click',()=>toggleCommentResolved(id,!c.resolved));
+    row.querySelector('.comment-del').addEventListener('click',()=>deleteComment(id));
+  });
+}
+function addOverlayCommentBadge(obj){
+  const open=getObjectComments(obj.id).length;
+  if(!open)return;
+  const a=getAABB(obj);
+  const cx=a.x+10,cy=a.y+10;
+  const g=svgEl('g',{transform:`translate(${cx},${cy})`,'cursor':'pointer','pointer-events':'all'});
+  g.appendChild(svgEl('circle',{cx:0,cy:0,r:'9',fill:'#ff6a18',stroke:'#fff','stroke-width':'1.5'}));
+  const t=svgEl('text',{x:0,y:3,'text-anchor':'middle',fill:'#fff','font-size':'10','font-weight':'800','font-family':'Arial'});
+  t.textContent=open>9?'9+':String(open);
+  g.appendChild(t);
+  g.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();openCommentPopover(obj.id);});
+  OV.appendChild(g);
+}
+
 // ── REVISION HISTORY (Phase 16) ───────────────────────────────────────
 // Labeled snapshots of the full project state. Each revision is a
 // deep-cloned payload in the same shape as a .flowforge file, stored
@@ -6325,6 +6544,10 @@ function captureProjectPayload(){
     dimensions:JSON.parse(JSON.stringify(S.dimensions||[])),
     showThroughput:!!S.showThroughput,
     throughputDefaults:{...S.throughputDefaults},
+    bomAnnotations:JSON.parse(JSON.stringify(S.bomAnnotations||{})),
+    bomIncludePricing:!!S.bomIncludePricing,
+    bomTaxPct:Number(S.bomTaxPct)||0,
+    comments:JSON.parse(JSON.stringify(S.comments||[])),
   };
 }
 function saveRevision(label){
@@ -6466,7 +6689,7 @@ function loadDemoLayout(key){
   if(!payload){showToast('Demo unavailable');return;}
   // Snapshot pre-load state in the same shape pushHistory writes so undo
   // can revert across the demo load (the funnel itself wipes history).
-  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct}):null;
+  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults,revisions:S.revisions,bomAnnotations:S.bomAnnotations,bomIncludePricing:S.bomIncludePricing,bomTaxPct:S.bomTaxPct,comments:S.comments}):null;
   applyLoadedProjectData(payload);
   if(prevSnap){
     S.history.unshift(prevSnap);
@@ -7055,6 +7278,21 @@ function bindAll(){
   document.getElementById('layersDoneBtn').addEventListener('click',closeLayersModal);
   // Phase 10 — Measure tool wiring
   document.getElementById('measureBtn').addEventListener('click',()=>toggleMeasureMode());
+  // Phase 15 — Comments wiring
+  document.getElementById('commentsBtn').addEventListener('click',openCommentsModal);
+  document.getElementById('commentsModalClose').addEventListener('click',closeCommentsModal);
+  document.getElementById('commentsDoneBtn').addEventListener('click',closeCommentsModal);
+  document.querySelectorAll('.comment-filter').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      S.commentFilter=btn.dataset.filter;
+      document.querySelectorAll('.comment-filter').forEach(b=>b.classList.toggle('active',b===btn));
+      renderCommentsList();
+    });
+  });
+  document.getElementById('commentPopoverClose').addEventListener('click',closeCommentPopover);
+  document.getElementById('commentPopoverCancel').addEventListener('click',closeCommentPopover);
+  document.getElementById('commentPopoverSave').addEventListener('click',saveComment);
+  updateCommentsBadge();
   // Phase 16 — Revision history wiring
   document.getElementById('saveRevisionBtn').addEventListener('click',promptSaveRevision);
   document.getElementById('historyBtn').addEventListener('click',openHistoryModal);
@@ -7119,6 +7357,7 @@ function bindAll(){
     S.dimensions=[];S.selDimId=null;S.measureMode=null;S.measurePreview=null;
     S.revisions=[];
     S.bomAnnotations={};S.bomIncludePricing=false;S.bomTaxPct=0;
+    S.comments=[];
     S.proj={name:'FlowForge Project',quote:'',date:new Date().toISOString().slice(0,10),notes:''};
     syncProjFields();render();renderNotes();syncMarkupToggleButtons();syncOptionsMenuState();pushHistory();clearAutosave();
   });
