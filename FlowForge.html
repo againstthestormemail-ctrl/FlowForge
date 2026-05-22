@@ -638,6 +638,12 @@ body.presentation-mode #presentationPill{display:block;}
       <button class="options-item" id="bomBtn" data-close-menu="true" role="menuitem" aria-label="Export BOM">BOM</button>
       <div class="options-section-title">Display</div>
       <button class="options-item" id="presentationBtn" data-close-menu="true" role="menuitem" title="Hide all UI chrome for projector demos (Shift+P)">Presentation Mode</button>
+      <button class="options-item" id="showThroughputBtn" role="menuitem" title="Show estimated cases/hour on powered conveyors">Show Throughput</button>
+      <div style="display:flex;gap:5px;padding:4px 6px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--muted);">
+        <label style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:60px;"><span>FPM</span><input id="tpDefSpeed" type="number" min="0" step="1" value="60" style="width:100%;font-size:11px;padding:2px 4px;"/></label>
+        <label style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:60px;"><span>Case in</span><input id="tpDefCaseLen" type="number" min="0" step="0.5" value="18" style="width:100%;font-size:11px;padding:2px 4px;"/></label>
+        <label style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:60px;"><span>Gap in</span><input id="tpDefCaseGap" type="number" min="0" step="0.5" value="6" style="width:100%;font-size:11px;padding:2px 4px;"/></label>
+      </div>
       <button class="options-item" id="hideLabelsBtn" aria-label="Show conveyor labels" title="Show/hide BF and conveyor type labels inside each conveyor box" role="menuitem">Show Conveyor Labels</button>
       <button class="options-item" id="hideTagsBtn" aria-label="Hide tags" title="Show/hide tag bubbles and tag leader lines in layout and exports" role="menuitem">Hide Tags</button>
       <label class="options-field"><span>Units</span>
@@ -814,6 +820,18 @@ body.presentation-mode #presentationPill{display:block;}
           </select>
         </div>
         <div class="prop-chk hidden" id="lockRow"><input type="checkbox" id="pLock"/> <span>Lock dimensions on canvas</span></div>
+        <div id="throughputProps" class="hidden">
+          <div class="sec-title" style="display:flex;align-items:center;gap:6px;cursor:pointer;" id="throughputSecTitle">
+            <span style="flex:1;">Throughput</span>
+            <span id="throughputCollapseChevron" style="font-size:10px;color:var(--muted);">▸</span>
+          </div>
+          <div id="throughputFields" class="hidden">
+            <label class="prop-row"><span class="prop-label">Speed (FPM)</span><input id="pTpSpeed" type="number" min="0" step="1" placeholder="default"/></label>
+            <label class="prop-row"><span class="prop-label">Case length (in)</span><input id="pTpCaseLen" type="number" min="0" step="0.5" placeholder="default"/></label>
+            <label class="prop-row"><span class="prop-label">Case gap (in)</span><input id="pTpCaseGap" type="number" min="0" step="0.5" placeholder="default"/></label>
+            <div class="dim-display" id="tpEstimate"></div>
+          </div>
+        </div>
         <div id="xferProps" class="hidden">
           <div class="sec-title">Transfer</div>
           <div class="prop-row"><span class="prop-label">Offset on Host</span><input id="pXferOff" type="number" min="0" step="1"/></div>
@@ -1246,6 +1264,8 @@ const S={
   measureMode:null, // Phase 10 — {points:[{x,y}], dragEndpoint?:{dimId,endpoint}} when active.
   selDimId:null, // Phase 10 — currently selected dimension id (for Delete).
   measurePreview:null, // Phase 10 — {x,y,snapFeature?} cursor preview while measuring.
+  showThroughput:false, // Phase 11 — toggle for the cases/hr badge overlay.
+  throughputDefaults:{speedFpm:60,caseLenIn:18,caseGapIn:6}, // Phase 11 — fallback when obj.throughput is missing.
 };
 
 // DOM refs
@@ -2554,6 +2574,8 @@ function drawOverlay(){
   }
   // Conveyor labels are drawn in world space so their orientation is consistent in the editor and export.
   S.objects.filter(o=>o.type==='conveyor').forEach(addOverlayConveyorInfoLabel);
+  // Phase 11 — throughput badge below the info label on powered conveyors.
+  S.objects.filter(o=>o.type==='conveyor').forEach(addOverlayThroughputBadge);
   // Tags draw above conveyor labels.
   S.objects.filter(o=>o.type==='conveyor'&&!o.isXfer).forEach(addOverlayTag);
   S.objects.filter(o=>o.type==='conveyor'&&!o.isXfer&&!o.isTurntable&&shouldShowInlineBF(o)).forEach(addOverlayBF);
@@ -3177,6 +3199,19 @@ function syncProps(){
   document.getElementById('rotRow').classList.remove('hidden');
   document.getElementById('lockRow').classList.toggle('hidden',!isConv);
   document.getElementById('xferProps').classList.toggle('hidden',!obj.isXfer);
+  // Phase 11 — throughput overrides for powered conveyors.
+  const tpProps=document.getElementById('throughputProps');
+  if(tpProps){
+    const show=isPoweredConveyor(obj);
+    tpProps.classList.toggle('hidden',!show);
+    if(show){
+      const t=obj.throughput||{};
+      document.getElementById('pTpSpeed').value=t.speedFpm!=null?t.speedFpm:'';
+      document.getElementById('pTpCaseLen').value=t.caseLenIn!=null?t.caseLenIn:'';
+      document.getElementById('pTpCaseGap').value=t.caseGapIn!=null?t.caseGapIn:'';
+      document.getElementById('tpEstimate').textContent='Est. '+computeThroughput(obj).toLocaleString()+' cases/hr';
+    }
+  }
 
   if(isConv&&!isCurve)setDualBox('pLenFt','pLenIn',obj.length);
   if(!isCurve)setDualBox('pWidFt','pWidIn',obj.width);
@@ -5137,7 +5172,7 @@ function buildFullCanvas(){
 // ══════════════════════════════════════════════════
 function saveProj(){
   askFileName('Save Project',defaultFileName('flowforge'),'flowforge',name=>{
-    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions});
+    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults});
     dl(new Blob([data],{type:'application/json'}),name);showToast('Project saved');
     clearAutosave();
   });
@@ -5177,7 +5212,7 @@ function loadCust(file){
 // HISTORY (UNDO/REDO)
 // ══════════════════════════════════════════════════
 function pushHistory(){
-  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions});
+  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults});
   S.history=S.history.slice(0,S.historyIdx+1);
   S.history.push(snap);S.historyIdx=S.history.length-1;
   if(S.history.length>80){S.history.shift();S.historyIdx--;}
@@ -5398,6 +5433,8 @@ function parseProjectPayload(raw){
     conveyorLabelsHidden:d.conveyorLabelsHidden==null?true:!!d.conveyorLabelsHidden,
     tagsHidden:!!d.tagsHidden,
     dimensions:Array.isArray(d.dimensions)?d.dimensions.filter(x=>isPlainObject(x)&&isPlainObject(x.p1)&&isPlainObject(x.p2)):[],
+    showThroughput:!!d.showThroughput,
+    throughputDefaults:isPlainObject(d.throughputDefaults)?{speedFpm:Number(d.throughputDefaults.speedFpm)||60,caseLenIn:Number(d.throughputDefaults.caseLenIn)||18,caseGapIn:Number(d.throughputDefaults.caseGapIn)||6}:{speedFpm:60,caseLenIn:18,caseGapIn:6},
   };
 }
 function applyLoadedProjectData(data){
@@ -5410,6 +5447,8 @@ function applyLoadedProjectData(data){
   S.selDimId=null;
   S.measureMode=null;
   S.measurePreview=null;
+  if(data.showThroughput!=null)S.showThroughput=!!data.showThroughput;
+  if(data.throughputDefaults)S.throughputDefaults={...S.throughputDefaults,...data.throughputDefaults};
   S.notesHidden=!!data.notesHidden||!!data.labelsHidden;
   S.labelsHidden=S.notesHidden;
   S.conveyorLabelsHidden=data.conveyorLabelsHidden==null?true:!!data.conveyorLabelsHidden;
@@ -5642,6 +5681,67 @@ function reorderLayer(srcId,tgtId,position){
 }
 function escapeHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
+// ── THROUGHPUT OVERLAY (Phase 11) ─────────────────────────────────────
+// Cases-per-hour estimate badge under each powered conveyor's info
+// label. Formula: speed_fpm × 60 min × 12 in/ft / (case_len + case_gap)
+// = (speed_fpm × 720) / (case_len + case_gap). The case spacing is the
+// belt distance one case occupies, so the rate falls naturally out of
+// belt-feet-per-hour divided by inches-per-case.
+const POWERED_FAMILIES=new Set(['cdlr','bdlr','belt','pbelt','nor-str','nor-cur','nor-merge','nor-spur','nor-360','chain','chain-xfer','tbelt-xfer','tt-pow']);
+function isPoweredConveyor(obj){
+  return !!obj&&obj.type==='conveyor'&&POWERED_FAMILIES.has(obj.family);
+}
+function getThroughputParams(obj){
+  const d=S.throughputDefaults||{speedFpm:60,caseLenIn:18,caseGapIn:6};
+  const o=obj?.throughput||{};
+  return{
+    speedFpm:Number.isFinite(Number(o.speedFpm))&&Number(o.speedFpm)>0?Number(o.speedFpm):d.speedFpm,
+    caseLenIn:Number.isFinite(Number(o.caseLenIn))&&Number(o.caseLenIn)>0?Number(o.caseLenIn):d.caseLenIn,
+    caseGapIn:Number.isFinite(Number(o.caseGapIn))&&Number(o.caseGapIn)>=0?Number(o.caseGapIn):d.caseGapIn,
+  };
+}
+function computeThroughput(obj){
+  const p=getThroughputParams(obj);
+  const spacing=Math.max(p.caseLenIn+p.caseGapIn,0.0001);
+  return Math.round(p.speedFpm*720/spacing);
+}
+function addOverlayThroughputBadge(obj){
+  if(!S.showThroughput||S.conveyorLabelsHidden)return;
+  if(!isPoweredConveyor(obj))return;
+  const m=conveyorInfoLabelMetrics(obj);if(!m)return;
+  const cph=computeThroughput(obj);
+  if(!cph||!isFinite(cph))return;
+  const text=cph.toLocaleString()+' cph';
+  const fs=Math.max(7,Math.min(10,m.fs-1));
+  const padX=6,padY=2;
+  const textW=text.length*fs*0.58;
+  const w=Math.max(textW+padX*2,28);
+  const h=fs+padY*2;
+  // Position the badge just below the info label, in the conveyor's
+  // upright orientation. Apply the same readable-angle transform.
+  const g=svgEl('g',{transform:`translate(${m.cx},${m.cy}) rotate(${m.angle})`,'pointer-events':'none'});
+  const y=m.labelH/2+3; // below the info-label rectangle
+  g.appendChild(svgEl('rect',{x:-w/2,y,width:w,height:h,rx:'4',fill:'#1a7a3a',stroke:'rgba(0,0,0,0.18)','stroke-width':'0.6'}));
+  const t=svgEl('text',{x:0,y:y+h/2+fs*0.34,'text-anchor':'middle',fill:'#fff','font-size':String(fs),'font-weight':'700','font-family':'Arial, sans-serif'});
+  t.textContent=text;g.appendChild(t);
+  OV.appendChild(g);
+}
+function toggleShowThroughput(force){
+  const want=typeof force==='boolean'?force:!S.showThroughput;
+  S.showThroughput=want;
+  const btn=document.getElementById('showThroughputBtn');
+  if(btn){btn.textContent=want?'Hide Throughput':'Show Throughput';}
+  drawOverlay();
+}
+function syncThroughputOptionsUI(){
+  const btn=document.getElementById('showThroughputBtn');
+  if(btn)btn.textContent=S.showThroughput?'Hide Throughput':'Show Throughput';
+  const s=document.getElementById('tpDefSpeed'),l=document.getElementById('tpDefCaseLen'),g=document.getElementById('tpDefCaseGap');
+  if(s)s.value=S.throughputDefaults.speedFpm;
+  if(l)l.value=S.throughputDefaults.caseLenIn;
+  if(g)g.value=S.throughputDefaults.caseGapIn;
+}
+
 // ── MEASURE TOOL (Phase 10) ───────────────────────────────────────────
 // Click-to-measure dimension chain. First click sets the start point;
 // second click commits a {p1, p2} dimension. Subsequent clicks chain a
@@ -5862,7 +5962,7 @@ function loadDemoLayout(key){
   if(!payload){showToast('Demo unavailable');return;}
   // Snapshot pre-load state in the same shape pushHistory writes so undo
   // can revert across the demo load (the funnel itself wipes history).
-  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions}):null;
+  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions,showThroughput:S.showThroughput,throughputDefaults:S.throughputDefaults}):null;
   applyLoadedProjectData(payload);
   if(prevSnap){
     S.history.unshift(prevSnap);
@@ -6451,6 +6551,46 @@ function bindAll(){
   document.getElementById('layersDoneBtn').addEventListener('click',closeLayersModal);
   // Phase 10 — Measure tool wiring
   document.getElementById('measureBtn').addEventListener('click',()=>toggleMeasureMode());
+  // Phase 11 — Throughput wiring (toggle + defaults + per-object overrides + collapsible section)
+  document.getElementById('showThroughputBtn').addEventListener('click',()=>toggleShowThroughput());
+  const tpHook=(inputId,key)=>{
+    const el=document.getElementById(inputId);if(!el)return;
+    el.addEventListener('input',()=>{
+      const v=Number(el.value);
+      if(Number.isFinite(v)&&v>=0)S.throughputDefaults[key]=v;
+      drawOverlay();syncProps();
+    });
+  };
+  tpHook('tpDefSpeed','speedFpm');
+  tpHook('tpDefCaseLen','caseLenIn');
+  tpHook('tpDefCaseGap','caseGapIn');
+  const tpObjHook=(inputId,key)=>{
+    const el=document.getElementById(inputId);if(!el)return;
+    el.addEventListener('input',()=>{
+      const obj=S.objects.find(o=>o.id===S.selId);if(!obj)return;
+      const v=el.value===''?null:Number(el.value);
+      if(!obj.throughput)obj.throughput={};
+      if(v==null||!Number.isFinite(v)||v<=0)delete obj.throughput[key]; else obj.throughput[key]=v;
+      if(!Object.keys(obj.throughput).length)delete obj.throughput;
+      drawOverlay();
+      const est=document.getElementById('tpEstimate');
+      if(est&&isPoweredConveyor(obj))est.textContent='Est. '+computeThroughput(obj).toLocaleString()+' cases/hr';
+    });
+    el.addEventListener('change',()=>pushHistory());
+  };
+  tpObjHook('pTpSpeed','speedFpm');
+  tpObjHook('pTpCaseLen','caseLenIn');
+  tpObjHook('pTpCaseGap','caseGapIn');
+  const tpSec=document.getElementById('throughputSecTitle');
+  if(tpSec){
+    tpSec.addEventListener('click',()=>{
+      const f=document.getElementById('throughputFields');
+      const c=document.getElementById('throughputCollapseChevron');
+      const collapsed=f.classList.toggle('hidden');
+      if(c)c.textContent=collapsed?'▸':'▾';
+    });
+  }
+  syncThroughputOptionsUI();
   document.getElementById('newBtn').addEventListener('click',()=>{
     if(!confirm('Start a new layout? Unsaved changes will be lost.'))return;
     S.objects=[];S.selId=null;S.selIds.clear();S.tagMove=null;S.tagAnchorMove=null;S.history=[];S.historyIdx=-1;
