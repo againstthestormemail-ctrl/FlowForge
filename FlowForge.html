@@ -712,6 +712,7 @@ body.presentation-mode #presentationPill{display:block;}
       <div id="notesTextLayer"></div>
       <div class="canvas-toolbar">
         <button class="ctb-btn" id="snapBtn" title="Snap to grid">⊞ Snap</button>
+        <button class="ctb-btn" id="measureBtn" title="Measure tool — click two points for a dimension, chain by clicking again, Esc to exit">📏 Measure</button>
         <button class="ctb-btn" id="layersBtn" title="Layers panel — list every object, reorder z-stack, toggle visibility">≣ Layers</button>
         <div class="ctb-sep"></div>
         <span style="font-size:11px;color:var(--muted);font-weight:600;padding:0 2px">Scroll to zoom · Middle-click drag to pan</span>
@@ -1241,6 +1242,10 @@ const S={
   tagAnchorMove:null, // {id, previewX, previewY, startedAt} while placing a tag leader anchor
   presentationMode:false, // Phase 6 — UI chrome hidden for projector demos. Transient (not persisted).
   alignmentGuides:[], // Phase 7 — dashed snap guides drawn during drag. Transient.
+  dimensions:[], // Phase 10 — persistent {id, p1:{x,y}, p2:{x,y}} placed by the Measure tool.
+  measureMode:null, // Phase 10 — {points:[{x,y}], dragEndpoint?:{dimId,endpoint}} when active.
+  selDimId:null, // Phase 10 — currently selected dimension id (for Delete).
+  measurePreview:null, // Phase 10 — {x,y,snapFeature?} cursor preview while measuring.
 };
 
 // DOM refs
@@ -2528,6 +2533,8 @@ function drawOverlay(){
       OV.appendChild(line);
     }
   }
+  // Dimensions (Phase 10) — drawn beneath labels/tags so they can read on top of them.
+  drawDimensions();
   // Group bounding boxes (Phase 8) — faint dashed AABB around every
   // group that has any selected member.
   const visibleGroups=new Set();
@@ -5130,7 +5137,7 @@ function buildFullCanvas(){
 // ══════════════════════════════════════════════════
 function saveProj(){
   askFileName('Save Project',defaultFileName('flowforge'),'flowforge',name=>{
-    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden});
+    const data=JSON.stringify({version:2,proj:S.proj,objects:S.objects,customs:S.customs,libTagPrefs:S.libTagPrefs,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions});
     dl(new Blob([data],{type:'application/json'}),name);showToast('Project saved');
     clearAutosave();
   });
@@ -5170,7 +5177,7 @@ function loadCust(file){
 // HISTORY (UNDO/REDO)
 // ══════════════════════════════════════════════════
 function pushHistory(){
-  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden});
+  const snap=JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions});
   S.history=S.history.slice(0,S.historyIdx+1);
   S.history.push(snap);S.historyIdx=S.history.length-1;
   if(S.history.length>80){S.history.shift();S.historyIdx--;}
@@ -5179,7 +5186,7 @@ function pushHistory(){
 function undo(){
   if(S.historyIdx<=0)return;S.historyIdx--;
   const d=JSON.parse(S.history[S.historyIdx]);
-  S.objects=d.objects;S.customs=d.customs;S.proj=d.proj;S.notes=(d.notes||[]).map(n=>n.type==='text'?{w:140,h:36,...n}:n);S.notesHidden=!!d.notesHidden||!!d.labelsHidden;S.labelsHidden=S.notesHidden;S.conveyorLabelsHidden=d.conveyorLabelsHidden==null?true:!!d.conveyorLabelsHidden;S.tagsHidden=!!d.tagsHidden;
+  S.objects=d.objects;S.customs=d.customs;S.proj=d.proj;S.notes=(d.notes||[]).map(n=>n.type==='text'?{w:140,h:36,...n}:n);S.notesHidden=!!d.notesHidden||!!d.labelsHidden;S.labelsHidden=S.notesHidden;S.conveyorLabelsHidden=d.conveyorLabelsHidden==null?true:!!d.conveyorLabelsHidden;S.tagsHidden=!!d.tagsHidden;S.dimensions=Array.isArray(d.dimensions)?d.dimensions:[];S.selDimId=null;
   realignAllTCarAttachments();
   S.selId=null;S.selIds.clear();S.selNoteId=null;
   if(typeof closeNotePopover==='function')closeNotePopover();
@@ -5188,7 +5195,7 @@ function undo(){
 function redo(){
   if(S.historyIdx>=S.history.length-1)return;S.historyIdx++;
   const d=JSON.parse(S.history[S.historyIdx]);
-  S.objects=d.objects;S.customs=d.customs;S.proj=d.proj;S.notes=(d.notes||[]).map(n=>n.type==='text'?{w:140,h:36,...n}:n);S.notesHidden=!!d.notesHidden||!!d.labelsHidden;S.labelsHidden=S.notesHidden;S.conveyorLabelsHidden=d.conveyorLabelsHidden==null?true:!!d.conveyorLabelsHidden;S.tagsHidden=!!d.tagsHidden;
+  S.objects=d.objects;S.customs=d.customs;S.proj=d.proj;S.notes=(d.notes||[]).map(n=>n.type==='text'?{w:140,h:36,...n}:n);S.notesHidden=!!d.notesHidden||!!d.labelsHidden;S.labelsHidden=S.notesHidden;S.conveyorLabelsHidden=d.conveyorLabelsHidden==null?true:!!d.conveyorLabelsHidden;S.tagsHidden=!!d.tagsHidden;S.dimensions=Array.isArray(d.dimensions)?d.dimensions:[];S.selDimId=null;
   realignAllTCarAttachments();
   S.selId=null;S.selIds.clear();S.selNoteId=null;
   if(typeof closeNotePopover==='function')closeNotePopover();
@@ -5379,6 +5386,7 @@ function parseProjectPayload(raw){
   if(d.customs!=null&&!Array.isArray(d.customs))throw new Error('Custom library payload is invalid.');
   if(d.libTagPrefs!=null&&!isPlainObject(d.libTagPrefs))throw new Error('Library tag preferences are invalid.');
   if(d.notes!=null&&!Array.isArray(d.notes))throw new Error('Notes payload is invalid.');
+  if(d.dimensions!=null&&!Array.isArray(d.dimensions))throw new Error('Dimensions payload is invalid.');
   return {
     proj:d.proj||S.proj,
     objects:validateLoadedRecordList(d.objects||[],'Objects','type'),
@@ -5389,6 +5397,7 @@ function parseProjectPayload(raw){
     labelsHidden:!!d.labelsHidden,
     conveyorLabelsHidden:d.conveyorLabelsHidden==null?true:!!d.conveyorLabelsHidden,
     tagsHidden:!!d.tagsHidden,
+    dimensions:Array.isArray(d.dimensions)?d.dimensions.filter(x=>isPlainObject(x)&&isPlainObject(x.p1)&&isPlainObject(x.p2)):[],
   };
 }
 function applyLoadedProjectData(data){
@@ -5397,6 +5406,10 @@ function applyLoadedProjectData(data){
   S.customs=data.customs;
   S.libTagPrefs=data.libTagPrefs;
   S.notes=data.notes;
+  S.dimensions=Array.isArray(data.dimensions)?data.dimensions:[];
+  S.selDimId=null;
+  S.measureMode=null;
+  S.measurePreview=null;
   S.notesHidden=!!data.notesHidden||!!data.labelsHidden;
   S.labelsHidden=S.notesHidden;
   S.conveyorLabelsHidden=data.conveyorLabelsHidden==null?true:!!data.conveyorLabelsHidden;
@@ -5629,6 +5642,190 @@ function reorderLayer(srcId,tgtId,position){
 }
 function escapeHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
+// ── MEASURE TOOL (Phase 10) ───────────────────────────────────────────
+// Click-to-measure dimension chain. First click sets the start point;
+// second click commits a {p1, p2} dimension. Subsequent clicks chain a
+// new segment starting from the previous endpoint. Esc or the Measure
+// button exits. Snaps to object endpoints, centers, and corners within
+// 0.5" tolerance (visualized as a magenta crosshair).
+function toggleMeasureMode(force){
+  const want=typeof force==='boolean'?force:!S.measureMode;
+  if(want){
+    S.measureMode={points:[]};
+    document.getElementById('measureBtn').classList.add('active');
+    document.body.style.cursor='crosshair';
+    sel(null);
+    showToast('Measure: click two points · Esc to exit');
+  }else{
+    S.measureMode=null;
+    S.measurePreview=null;
+    document.getElementById('measureBtn').classList.remove('active');
+    document.body.style.cursor='';
+    drawOverlay();
+  }
+}
+function measureSnapCandidates(){
+  // Returns world-space candidate snap points: endpoints (straight + curve),
+  // AABB corners, AABB center, and existing dimension endpoints.
+  const out=[];
+  for(const o of S.objects){
+    if(o.hidden)continue;
+    if(o.type==='conveyor'){
+      const eps=getEPs(o);
+      for(const e of eps)out.push({x:e.x,y:e.y,kind:'endpoint'});
+    }
+    const a=getAABB(o);
+    out.push({x:a.x,y:a.y,kind:'corner'});
+    out.push({x:a.x+a.w,y:a.y,kind:'corner'});
+    out.push({x:a.x,y:a.y+a.h,kind:'corner'});
+    out.push({x:a.x+a.w,y:a.y+a.h,kind:'corner'});
+    out.push({x:a.x+a.w/2,y:a.y+a.h/2,kind:'center'});
+  }
+  for(const d of S.dimensions){
+    out.push({x:d.p1.x,y:d.p1.y,kind:'dim-end'});
+    out.push({x:d.p2.x,y:d.p2.y,kind:'dim-end'});
+  }
+  return out;
+}
+function measureSnap(worldX,worldY){
+  const tol=Math.max(0.5*S.ppi,8/S.zoom);
+  let best=null,bestD=Infinity;
+  for(const c of measureSnapCandidates()){
+    const d=Math.hypot(c.x-worldX,c.y-worldY);
+    if(d<=tol&&d<bestD){bestD=d;best=c;}
+  }
+  return best?{x:best.x,y:best.y,snap:true,kind:best.kind}:{x:worldX,y:worldY,snap:false};
+}
+function handleMeasureClick(clientX,clientY){
+  if(!S.measureMode)return;
+  const raw=clientToWS(clientX,clientY);
+  const p=measureSnap(raw.x,raw.y);
+  const pts=S.measureMode.points;
+  pts.push({x:p.x,y:p.y});
+  if(pts.length>=2){
+    const p1=pts[pts.length-2],p2=pts[pts.length-1];
+    const dim={id:uid('dim'),p1:{x:p1.x,y:p1.y},p2:{x:p2.x,y:p2.y}};
+    S.dimensions.push(dim);
+    S.selDimId=dim.id;
+    pushHistory();
+  }
+  drawOverlay();
+}
+function commitMeasureChain(){
+  // Pressing Enter or clicking the Measure button while in chain mode
+  // exits and clears the in-progress point if any.
+  toggleMeasureMode(false);
+}
+function deleteSelectedDimension(){
+  if(!S.selDimId)return false;
+  S.dimensions=S.dimensions.filter(d=>d.id!==S.selDimId);
+  S.selDimId=null;
+  pushHistory();drawOverlay();return true;
+}
+function findDimensionAt(clientX,clientY){
+  // Hit-test dimension lines: within ~5px screen distance of the
+  // segment. Returns the dimension id or null.
+  const p=clientToWS(clientX,clientY);
+  const tol=5/S.zoom;
+  for(let i=S.dimensions.length-1;i>=0;i--){
+    const d=S.dimensions[i];
+    const dx=d.p2.x-d.p1.x,dy=d.p2.y-d.p1.y;
+    const len2=dx*dx+dy*dy;if(!len2)continue;
+    const t=Math.max(0,Math.min(1,((p.x-d.p1.x)*dx+(p.y-d.p1.y)*dy)/len2));
+    const cx=d.p1.x+t*dx,cy=d.p1.y+t*dy;
+    if(Math.hypot(p.x-cx,p.y-cy)<=tol)return d.id;
+  }
+  return null;
+}
+function findDimensionEndpointAt(clientX,clientY){
+  // Returns {dimId, endpoint:'p1'|'p2'} or null.
+  const p=clientToWS(clientX,clientY);
+  const tol=8/S.zoom;
+  for(const d of S.dimensions){
+    if(Math.hypot(p.x-d.p1.x,p.y-d.p1.y)<=tol)return{dimId:d.id,endpoint:'p1'};
+    if(Math.hypot(p.x-d.p2.x,p.y-d.p2.y)<=tol)return{dimId:d.id,endpoint:'p2'};
+  }
+  return null;
+}
+function beginDimensionEndpointDrag(hit,startClientX,startClientY){
+  const move=ev=>{
+    const raw=clientToWS(ev.clientX,ev.clientY);
+    const p=measureSnap(raw.x,raw.y);
+    const d=S.dimensions.find(x=>x.id===hit.dimId);if(!d)return;
+    d[hit.endpoint]={x:p.x,y:p.y};
+    drawOverlay();
+  };
+  const up=()=>{
+    window.removeEventListener('pointermove',move);
+    window.removeEventListener('pointerup',up);
+    pushHistory();
+  };
+  window.addEventListener('pointermove',move);
+  window.addEventListener('pointerup',up);
+}
+function dimensionLengthInches(d){
+  // S.ppi maps inches to pixels — so px distance / ppi = inches.
+  return Math.hypot(d.p2.x-d.p1.x,d.p2.y-d.p1.y)/Math.max(S.ppi,0.001);
+}
+function drawDimensions(){
+  // Render committed dimensions, in-progress chain segments, and the
+  // measure-mode snap crosshair. Called from drawOverlay().
+  for(const d of S.dimensions){
+    const selected=S.selDimId===d.id;
+    const color=selected?'#ff6a18':'#c0521a';
+    const lw=selected?'2.5':'1.8';
+    const ln=svgLine(d.p1.x,d.p1.y,d.p2.x,d.p2.y,color,lw);
+    OV.appendChild(ln);
+    // End ticks perpendicular to the line.
+    const angle=Math.atan2(d.p2.y-d.p1.y,d.p2.x-d.p1.x);
+    const tx=Math.sin(angle)*6,ty=-Math.cos(angle)*6;
+    OV.appendChild(svgLine(d.p1.x+tx,d.p1.y+ty,d.p1.x-tx,d.p1.y-ty,color,lw));
+    OV.appendChild(svgLine(d.p2.x+tx,d.p2.y+ty,d.p2.x-tx,d.p2.y-ty,color,lw));
+    // Endpoint dots (selected only — they're drag handles)
+    if(selected){
+      OV.appendChild(svgEl('circle',{cx:d.p1.x,cy:d.p1.y,r:'5',fill:'#fff',stroke:color,'stroke-width':'2'}));
+      OV.appendChild(svgEl('circle',{cx:d.p2.x,cy:d.p2.y,r:'5',fill:'#fff',stroke:color,'stroke-width':'2'}));
+    }
+    // Label at midpoint
+    const mx=(d.p1.x+d.p2.x)/2,my=(d.p1.y+d.p2.y)/2;
+    const inches=dimensionLengthInches(d);
+    const label=fmtDim(inches);
+    const fs=Math.max(9,Math.min(14,12/Math.max(S.zoom,0.5)));
+    const labelW=Math.max(label.length*fs*0.55+10,40);
+    const labelH=fs+8;
+    // Offset label perpendicular to line so it doesn't overlap the line.
+    const offsetX=Math.sin(angle)*(labelH/2+2);
+    const offsetY=-Math.cos(angle)*(labelH/2+2);
+    OV.appendChild(svgEl('rect',{x:mx-labelW/2+offsetX,y:my-labelH/2+offsetY,width:labelW,height:labelH,rx:'3',fill:'rgba(245,239,222,0.92)',stroke:color,'stroke-width':'1'}));
+    const t=svgEl('text',{x:mx+offsetX,y:my+offsetY+fs*0.34,'text-anchor':'middle',fill:'#2a2f36','font-size':String(fs),'font-weight':'700','font-family':'Arial, sans-serif'});
+    t.textContent=label;OV.appendChild(t);
+  }
+  // In-progress measure: pending start point + cursor preview line.
+  if(S.measureMode){
+    const last=S.measureMode.points[S.measureMode.points.length-1];
+    if(last&&S.measurePreview){
+      const ln=svgLine(last.x,last.y,S.measurePreview.x,S.measurePreview.y,'#ff6a18','1.5');
+      ln.setAttribute('stroke-dasharray','5 3');
+      OV.appendChild(ln);
+      const live=fmtDim(Math.hypot(S.measurePreview.x-last.x,S.measurePreview.y-last.y)/Math.max(S.ppi,0.001));
+      const mx=(last.x+S.measurePreview.x)/2,my=(last.y+S.measurePreview.y)/2;
+      const fs=Math.max(9,Math.min(13,11/Math.max(S.zoom,0.5)));
+      const t=svgEl('text',{x:mx,y:my-8,'text-anchor':'middle',fill:'#c0521a','font-size':String(fs),'font-weight':'700','font-family':'Arial, sans-serif',opacity:'0.85'});
+      t.textContent=live;OV.appendChild(t);
+    }
+    if(last){
+      OV.appendChild(svgEl('circle',{cx:last.x,cy:last.y,r:'4',fill:'#ff6a18',stroke:'#fff','stroke-width':'1.5'}));
+    }
+    if(S.measurePreview?.snap){
+      // Magenta crosshair to indicate snap.
+      const sx=S.measurePreview.x,sy=S.measurePreview.y;
+      OV.appendChild(svgLine(sx-8,sy,sx+8,sy,'#c0289b','1.5'));
+      OV.appendChild(svgLine(sx,sy-8,sx,sy+8,'#c0289b','1.5'));
+      OV.appendChild(svgEl('circle',{cx:sx,cy:sy,r:'5',fill:'none',stroke:'#c0289b','stroke-width':'1.5'}));
+    }
+  }
+}
+
 // ── PRESENTATION MODE (Phase 6) ───────────────────────────────────────
 function togglePresentationMode(force){
   const want=typeof force==='boolean'?force:!S.presentationMode;
@@ -5665,7 +5862,7 @@ function loadDemoLayout(key){
   if(!payload){showToast('Demo unavailable');return;}
   // Snapshot pre-load state in the same shape pushHistory writes so undo
   // can revert across the demo load (the funnel itself wipes history).
-  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden}):null;
+  const prevSnap=hasWork?JSON.stringify({objects:S.objects,customs:S.customs,proj:S.proj,notes:S.notes,notesHidden:S.notesHidden,labelsHidden:S.labelsHidden,conveyorLabelsHidden:S.conveyorLabelsHidden,tagsHidden:S.tagsHidden,dimensions:S.dimensions}):null;
   applyLoadedProjectData(payload);
   if(prevSnap){
     S.history.unshift(prevSnap);
@@ -6032,6 +6229,16 @@ function bindAll(){
   // Single delegated handler on stable container — never gets destroyed during drag
   IL.addEventListener('pointerdown',e=>{
     if(S.tagMove||S.tagAnchorMove)return;
+    // Phase 10 — drag a selected dimension's endpoint dot.
+    if(S.selDimId&&!S.measureMode){
+      const epHit=findDimensionEndpointAt(e.clientX,e.clientY);
+      if(epHit&&epHit.dimId===S.selDimId){
+        e.preventDefault();e.stopPropagation();
+        S._suppressClick=Date.now()+180;
+        beginDimensionEndpointDrag(epHit,e.clientX,e.clientY);
+        return;
+      }
+    }
     const anchorObj=(e.button===0&&!S.placeMode)?findTagAnchorAt(e.clientX,e.clientY):null;
     if(anchorObj){e.preventDefault();e.stopPropagation();beginMoveTagAnchor(anchorObj);S._suppressClick=Date.now()+180;return;}
     const item=e.target.closest('.ws-item');
@@ -6175,7 +6382,13 @@ function bindAll(){
     if(S.tagMove){e.preventDefault();e.stopPropagation();commitMoveTag(e.clientX,e.clientY);return;}
     if(S.pendingNoteArrowId&&placePendingNoteArrow(e.clientX,e.clientY)){e.stopPropagation();return;}
     if(S.placeMode){updatePlacementGhost(e.clientX,e.clientY);commitPlacement();return;}
+    // Phase 10 — measure mode intercepts canvas clicks.
+    if(S.measureMode){e.stopPropagation();handleMeasureClick(e.clientX,e.clientY);return;}
+    // Phase 10 — click an existing dimension to select it.
+    const dimHit=findDimensionAt(e.clientX,e.clientY);
+    if(dimHit){S.selDimId=dimHit;sel(null);drawOverlay();return;}
     if(e.ctrlKey||e.metaKey)return;
+    if(S.selDimId){S.selDimId=null;drawOverlay();}
     sel(null);
     if(S.selNoteId){S.selNoteId=null;renderNotes();renderNotesList();}
     closeNotePopover();
@@ -6184,6 +6397,13 @@ function bindAll(){
   // Placement ghost follow
   WS.addEventListener('mousemove',e=>{
     if(S.placeMode){updatePlacementGhost(e.clientX,e.clientY);}
+    // Phase 10 — measure preview tracks the cursor with snap detection.
+    if(S.measureMode){
+      const raw=clientToWS(e.clientX,e.clientY);
+      const p=measureSnap(raw.x,raw.y);
+      S.measurePreview=p;
+      drawOverlay();
+    }
     if(S.tagAnchorMove){
       const obj=S.objects.find(o=>o.id===S.tagAnchorMove.id);
       const p=clientToWS(e.clientX,e.clientY);
@@ -6229,10 +6449,13 @@ function bindAll(){
   document.getElementById('layersBtn').addEventListener('click',openLayersModal);
   document.getElementById('layersModalClose').addEventListener('click',closeLayersModal);
   document.getElementById('layersDoneBtn').addEventListener('click',closeLayersModal);
+  // Phase 10 — Measure tool wiring
+  document.getElementById('measureBtn').addEventListener('click',()=>toggleMeasureMode());
   document.getElementById('newBtn').addEventListener('click',()=>{
     if(!confirm('Start a new layout? Unsaved changes will be lost.'))return;
     S.objects=[];S.selId=null;S.selIds.clear();S.tagMove=null;S.tagAnchorMove=null;S.history=[];S.historyIdx=-1;
     S.notes=[];S.notesHidden=false;S.labelsHidden=false;S.conveyorLabelsHidden=true;S.tagsHidden=false;S.selNoteId=null;closeNotePopover();
+    S.dimensions=[];S.selDimId=null;S.measureMode=null;S.measurePreview=null;
     S.proj={name:'FlowForge Project',quote:'',date:new Date().toISOString().slice(0,10),notes:''};
     syncProjFields();render();renderNotes();syncMarkupToggleButtons();syncOptionsMenuState();pushHistory();clearAutosave();
   });
@@ -6444,10 +6667,12 @@ function bindAll(){
       if(isOptionsMenuOpen()){closeOptionsMenu();return;}
       if(S.placeMode){clearPlacement();return;}
       if(S.llActive){deactivateLL(S.llActive);return;}
+      if(S.measureMode){toggleMeasureMode(false);return;}
       const kbdOl=document.getElementById('kbdOverlay');
       if(!kbdOl.classList.contains('hidden')){kbdOl.classList.add('hidden');return;}
       // Esc with no other modal-cursor mode pending: exit presentation if active, else clear selection.
       if(S.presentationMode){togglePresentationMode(false);return;}
+      if(S.selDimId){S.selDimId=null;drawOverlay();return;}
       closeContextMenu();sel(null);return;
     }
     // Shift+P toggles presentation mode (only outside input fields).
@@ -6481,6 +6706,7 @@ function bindAll(){
       return;
     }
     if(e.key==='Delete'||e.key==='Backspace'){
+      if(S.selDimId){deleteSelectedDimension();return;}
       if(S.selNoteId){deleteNote(S.selNoteId);return;}
       if(obj){delSel();pushHistory();}return;
     }
