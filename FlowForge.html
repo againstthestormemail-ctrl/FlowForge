@@ -1187,6 +1187,7 @@ const S={
   tagMove:null, // {id, previewX, previewY} while placing a moved tag bubble
   tagAnchorMove:null, // {id, previewX, previewY, startedAt} while placing a tag leader anchor
   presentationMode:false, // Phase 6 — UI chrome hidden for projector demos. Transient (not persisted).
+  alignmentGuides:[], // Phase 7 — dashed snap guides drawn during drag. Transient.
 };
 
 // DOM refs
@@ -1411,6 +1412,72 @@ function getAABB(obj){
   const pts=[rotPt(obj.x,obj.y,cx,cy,obj.rot),rotPt(obj.x+w,obj.y,cx,cy,obj.rot),rotPt(obj.x+w,obj.y+h,cx,cy,obj.rot),rotPt(obj.x,obj.y+h,cx,cy,obj.rot)];
   const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
   return{x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xs)-Math.min(...xs),h:Math.max(...ys)-Math.min(...ys)};
+}
+
+// ── ALIGNMENT GUIDES (Phase 7) ────────────────────────────────────────
+// Figma-style smart guides: during drag, snap the moving group's six
+// AABB axes (left/right/h-center for X, top/bottom/v-center for Y) to
+// matching axes on other on-canvas objects within tolerance.
+// Returns { dx, dy, guides } where the dx/dy include the snap
+// adjustment and guides is a list of SVG line specs to render.
+function computeAlignmentGuides(draggedIds,rawDx,rawDy,origs){
+  if(!Array.isArray(draggedIds)||!draggedIds.length)return{dx:rawDx,dy:rawDy,guides:[]};
+  const tolerance=Math.max(0.5*S.ppi,6/S.zoom);
+  // Group AABB at the proposed (raw) position
+  let gx1=Infinity,gy1=Infinity,gx2=-Infinity,gy2=-Infinity;
+  for(const id of draggedIds){
+    const o=S.objects.find(x=>x.id===id);if(!o)continue;
+    const orig=origs.get(id);if(!orig)continue;
+    const proxy={...o,x:orig.x+rawDx,y:orig.y+rawDy};
+    const a=getAABB(proxy);
+    gx1=Math.min(gx1,a.x);gy1=Math.min(gy1,a.y);
+    gx2=Math.max(gx2,a.x+a.w);gy2=Math.max(gy2,a.y+a.h);
+  }
+  if(!isFinite(gx1))return{dx:rawDx,dy:rawDy,guides:[]};
+  const gHC=(gx1+gx2)/2,gVC=(gy1+gy2)/2;
+  const draggedSet=new Set(draggedIds);
+  const candidates=[];
+  for(const o of S.objects){
+    if(draggedSet.has(o.id))continue;
+    if(o.hidden)continue;
+    if(o.type!=='conveyor'&&o.type!=='obstacle')continue;
+    const a=getAABB(o);
+    candidates.push({x1:a.x,x2:a.x+a.w,hc:a.x+a.w/2,y1:a.y,y2:a.y+a.h,vc:a.y+a.h/2});
+  }
+  // Best X-axis match (snap target value on the X axis; "v" = vertical guide line)
+  let bestX={absD:Infinity,delta:0,target:null,extentY:null};
+  let bestY={absD:Infinity,delta:0,target:null,extentX:null};
+  const tryX=(dragVal,c,targetVal)=>{
+    const d=targetVal-dragVal,ad=Math.abs(d);
+    if(ad>tolerance||ad>=bestX.absD)return;
+    bestX={absD:ad,delta:d,target:targetVal,extentY:[Math.min(gy1,c.y1)+d*0,Math.max(gy2,c.y2)]};
+    bestX.extentY=[Math.min(gy1,c.y1),Math.max(gy2,c.y2)];
+  };
+  const tryY=(dragVal,c,targetVal)=>{
+    const d=targetVal-dragVal,ad=Math.abs(d);
+    if(ad>tolerance||ad>=bestY.absD)return;
+    bestY={absD:ad,delta:d,target:targetVal,extentX:[Math.min(gx1,c.x1),Math.max(gx2,c.x2)]};
+  };
+  for(const c of candidates){
+    // X axes: left, hcenter, right of dragged → left, hcenter, right of candidate
+    for(const dragV of [gx1,gHC,gx2]){
+      for(const tgtV of [c.x1,c.hc,c.x2])tryX(dragV,c,tgtV);
+    }
+    for(const dragV of [gy1,gVC,gy2]){
+      for(const tgtV of [c.y1,c.vc,c.y2])tryY(dragV,c,tgtV);
+    }
+  }
+  const guides=[];
+  let dx=rawDx,dy=rawDy;
+  if(bestX.target!=null){
+    dx=rawDx+bestX.delta;
+    guides.push({axis:'v',x:bestX.target,y1:bestX.extentY[0],y2:bestX.extentY[1]});
+  }
+  if(bestY.target!=null){
+    dy=rawDy+bestY.delta;
+    guides.push({axis:'h',y:bestY.target,x1:bestY.extentX[0],x2:bestY.extentX[1]});
+  }
+  return{dx,dy,guides};
 }
 
 // Transfer geometry
@@ -2396,6 +2463,18 @@ function drawOverlay(){
     OV.appendChild(svgLine(S.snapPrev.moving.x,S.snapPrev.moving.y,S.snapPrev.target.x,S.snapPrev.target.y,'#ff6a18','2'));
     OV.appendChild(svgEl('circle',{cx:S.snapPrev.target.x,cy:S.snapPrev.target.y,r:'7',class:'ep-preview'}));
   }
+  // Alignment guides (Phase 7) — dashed hot-orange edge/center matches
+  // drawn while dragging.
+  if(S.alignmentGuides&&S.alignmentGuides.length){
+    for(const g of S.alignmentGuides){
+      const line=g.axis==='v'
+        ? svgLine(g.x,g.y1,g.x,g.y2,'#ff6a18','1')
+        : svgLine(g.x1,g.y,g.x2,g.y,'#ff6a18','1');
+      line.setAttribute('stroke-dasharray','4 3');
+      line.setAttribute('opacity','0.65');
+      OV.appendChild(line);
+    }
+  }
   // Conveyor labels are drawn in world space so their orientation is consistent in the editor and export.
   S.objects.filter(o=>o.type==='conveyor').forEach(addOverlayConveyorInfoLabel);
   // Tags draw above conveyor labels.
@@ -2610,12 +2689,24 @@ function startObjectDrag(e,obj){
       syncDraggedItemVisual(obj);
       S.snapPrev=null;
     }else{
-      const dx=(ev.clientX-sx)/S.zoom, dy=(ev.clientY-sy)/S.zoom;
+      const rawDx=(ev.clientX-sx)/S.zoom, rawDy=(ev.clientY-sy)/S.zoom;
+      // Alignment guides (Phase 7) — hold Alt to bypass for fine positioning.
+      let dx=rawDx,dy=rawDy;
+      S.alignmentGuides=[];
+      if(!ev.altKey){
+        const r=computeAlignmentGuides(groupIds,rawDx,rawDy,origs);
+        dx=r.dx;dy=r.dy;S.alignmentGuides=r.guides;
+      }
+      const hasXGuide=S.alignmentGuides.some(g=>g.axis==='v');
+      const hasYGuide=S.alignmentGuides.some(g=>g.axis==='h');
       groupIds.forEach(id=>{
         const o=S.objects.find(x=>x.id===id);if(!o)return;
         const orig=origs.get(id);
-        o.x=snapPx(Math.max(0,orig.x+dx));
-        o.y=snapPx(Math.max(0,orig.y+dy));
+        const nx=Math.max(0,orig.x+dx),ny=Math.max(0,orig.y+dy);
+        // Alignment overrides grid snap on the snapped axis so two
+        // aligned-but-non-grid items stay aligned.
+        o.x=hasXGuide?nx:snapPx(nx);
+        o.y=hasYGuide?ny:snapPx(ny);
         syncDraggedItemVisual(o);
       });
       if(groupIds.some(id=>isTCarRail(S.objects.find(x=>x.id===id)))){
@@ -2634,6 +2725,7 @@ function startObjectDrag(e,obj){
     window.removeEventListener('pointerup',up);
     S._suppressClick=Date.now()+180;
     S.drag=null;
+    S.alignmentGuides=[];
     S.xferMountPrev=null;
     document.body.style.userSelect='';document.body.style.cursor='';
     if(!isGroup){
