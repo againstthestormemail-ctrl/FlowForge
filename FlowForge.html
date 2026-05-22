@@ -1038,6 +1038,35 @@ body.presentation-mode #presentationPill{display:block;}
       <div id="exportPdfOptions" style="margin-top:10px;display:none;">
         <strong>PDF Options</strong><br>
         <label style="display:flex;align-items:center;gap:6px;margin-top:4px;"><input type="checkbox" id="expIncludeCover" checked> Include cover page (project summary, stats, notes)</label>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:4px;"><input type="checkbox" id="expTileMode"> Tile across multiple pages (key plan + tiles)</label>
+        <div id="expTileOptions" style="display:none;margin-top:6px;padding-left:22px;display:none;">
+          <div style="display:flex;gap:8px;margin-top:4px;font-size:11px;">
+            <label style="display:flex;flex-direction:column;gap:2px;flex:1;">Page size
+              <select id="expPageSize" style="font-size:11px;">
+                <option value="letter">Letter (8.5×11)</option>
+                <option value="legal">Legal (8.5×14)</option>
+                <option value="tabloid">Tabloid (11×17)</option>
+                <option value="a4">A4 (8.27×11.69)</option>
+                <option value="a3">A3 (11.69×16.54)</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:2px;flex:1;">Orientation
+              <select id="expOrient" style="font-size:11px;">
+                <option value="landscape">Landscape</option>
+                <option value="portrait">Portrait</option>
+              </select>
+            </label>
+          </div>
+          <label style="display:flex;flex-direction:column;gap:2px;font-size:11px;margin-top:6px;">Scale
+            <select id="expScale" style="font-size:11px;">
+              <option value="0.125">1/8" = 1'</option>
+              <option value="0.25" selected>1/4" = 1'</option>
+              <option value="0.5">1/2" = 1'</option>
+              <option value="1">1" = 1'</option>
+              <option value="fit">Fit to 4 pages (auto-scale)</option>
+            </select>
+          </label>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -5098,6 +5127,149 @@ function buildPdfBlobFromCanvases(canvases){
   return new Blob(parts,{type:'application/pdf'});
 }
 
+// ── PRINT TILING (Phase 14) ───────────────────────────────────────────
+// Multi-page tiled PDF export. A "key plan" page shows the whole
+// layout at fit-to-page scale with tile boundaries overlaid; each
+// subsequent page shows one tile at the requested print scale with
+// registration marks in the corners.
+const PAGE_SIZES_IN={letter:[8.5,11],legal:[8.5,14],tabloid:[11,17],a4:[8.27,11.69],a3:[11.69,16.54]};
+function pageSizePts(name,orient){
+  const [w,h]=PAGE_SIZES_IN[name]||PAGE_SIZES_IN.letter;
+  const wp=w*72,hp=h*72;
+  return orient==='landscape'?[hp,wp]:[wp,hp];
+}
+function getLayoutWorldBBoxInches(){
+  const boxes=getExportOccupiedBoxes();
+  if(!boxes.length){
+    // Fallback: full workspace.
+    return{x:0,y:0,w:(WS?.offsetWidth||1400)/S.ppi,h:(WS?.offsetHeight||860)/S.ppi};
+  }
+  let x1=Infinity,y1=Infinity,x2=-Infinity,y2=-Infinity;
+  for(const b of boxes){
+    x1=Math.min(x1,b.x);y1=Math.min(y1,b.y);
+    x2=Math.max(x2,b.x+b.w);y2=Math.max(y2,b.y+b.h);
+  }
+  const pad=12; // half-inch padding in pixels (12px at ppi=24 -> 0.5in)
+  return{x:(x1-pad)/S.ppi,y:(y1-pad)/S.ppi,w:(x2-x1+pad*2)/S.ppi,h:(y2-y1+pad*2)/S.ppi};
+}
+function buildTilingPages(opts){
+  // opts: {pageSize, orient, scaleStr}
+  // Returns [keyPlan, tile1, tile2, ...]. Reuses buildCanvas for the
+  // source layout image, then crops sub-rects per tile.
+  const [pageW_pt,pageH_pt]=pageSizePts(opts.pageSize,opts.orient);
+  const margin_pt=18;
+  const printW_pt=pageW_pt-margin_pt*2;
+  const printH_pt=pageH_pt-margin_pt*2;
+  const printW_in=printW_pt/72;
+  const printH_in=printH_pt/72;
+  const worldBBox=getLayoutWorldBBoxInches();
+  let scale;
+  if(opts.scaleStr==='fit'){
+    const fitScale=Math.min(printW_in/(worldBBox.w/12),printH_in/(worldBBox.h/12));
+    scale=fitScale*0.7;
+  }else{
+    scale=Number(opts.scaleStr);
+  }
+  const tileFtW=printW_in/scale;
+  const tileFtH=printH_in/scale;
+  const worldFtW=worldBBox.w/12;
+  const worldFtH=worldBBox.h/12;
+  const cols=Math.max(1,Math.ceil(worldFtW/tileFtW));
+  const rows=Math.max(1,Math.ceil(worldFtH/tileFtH));
+  const totalTiles=cols*rows;
+  // Source: the same cropped buildCanvas the layout export uses. It
+  // already covers exactly the occupied content with reasonable
+  // padding and renders at 2x scale.
+  const exportState=getCroppedExportState();
+  const worldCanvas=buildCanvas(exportState);
+  // worldCanvas dimensions correspond to exportState.contentW × scale
+  // (the buildCanvas internal 2x scale is already applied). We map
+  // (world-pixel x, y) to canvas pixels via:
+  //   canvasX = (worldX - exportState.minX) * (worldCanvas.width / exportState.contentW)
+  // exportState.contentW is in world-pixels.
+  const pxPerWorldPx_W=worldCanvas.width/exportState.contentW;
+  const pxPerWorldPx_H=worldCanvas.height/exportState.contentH;
+  // Build key plan: page-sized canvas with worldCanvas drawn fit-to-page
+  // and tile boundary lines overlaid.
+  const pages=[];
+  const KP_RES=2; // pixels per pt on paper for crispness
+  const kpW=Math.round(pageW_pt*KP_RES),kpH=Math.round(pageH_pt*KP_RES);
+  const kp=document.createElement('canvas');kp.width=kpW;kp.height=kpH;
+  const kctx=kp.getContext('2d');
+  kctx.fillStyle='#fff';kctx.fillRect(0,0,kpW,kpH);
+  // Compute fit-to-page draw rect inside the printable area
+  const kpScale=Math.min(printW_pt/worldCanvas.width,printH_pt/worldCanvas.height)*KP_RES;
+  const drawW=worldCanvas.width*kpScale,drawH=worldCanvas.height*kpScale;
+  const drawX=(kpW-drawW)/2,drawY=(kpH-drawH)/2;
+  kctx.drawImage(worldCanvas,drawX,drawY,drawW,drawH);
+  // Header
+  kctx.fillStyle='#2a2f36';kctx.font=`bold ${14*KP_RES}px Arial`;kctx.textAlign='left';kctx.textBaseline='top';
+  kctx.fillText('KEY PLAN',margin_pt*KP_RES,margin_pt*KP_RES*0.4);
+  kctx.font=`${10*KP_RES}px Arial`;kctx.fillStyle='#6b6f78';
+  kctx.fillText(`${S.proj.name||'FlowForge'} — ${cols}×${rows} = ${totalTiles} tile${totalTiles===1?'':'s'} @ ${opts.scaleStr==='fit'?'fit':opts.scaleStr+'" = 1\''}`,margin_pt*KP_RES,margin_pt*KP_RES*0.4+18*KP_RES);
+  // Tile grid overlay — tile size in worldCanvas-pixels then scaled to
+  // the key-plan draw rect.
+  const tileWorldPxW=tileFtW*12*S.ppi;
+  const tileWorldPxH=tileFtH*12*S.ppi;
+  const tileKpW=tileWorldPxW*pxPerWorldPx_W*kpScale;
+  const tileKpH=tileWorldPxH*pxPerWorldPx_H*kpScale;
+  kctx.strokeStyle='#ff6a18';kctx.lineWidth=1.6*KP_RES;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const tx=drawX+c*tileKpW;
+      const ty=drawY+r*tileKpH;
+      const tw=Math.min(drawX+drawW-tx,tileKpW);
+      const th=Math.min(drawY+drawH-ty,tileKpH);
+      kctx.strokeRect(tx,ty,tw,th);
+      kctx.fillStyle='rgba(255,106,24,0.85)';kctx.font=`bold ${10*KP_RES}px Arial`;kctx.textAlign='left';kctx.textBaseline='top';
+      const label=String.fromCharCode(65+r)+(c+1);
+      kctx.fillText(label,tx+4*KP_RES,ty+4*KP_RES);
+    }
+  }
+  pages.push(kp);
+  // Build each tile canvas
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const tile=document.createElement('canvas');tile.width=kpW;tile.height=kpH;
+      const tctx=tile.getContext('2d');
+      tctx.fillStyle='#fff';tctx.fillRect(0,0,kpW,kpH);
+      // Source rect in worldCanvas pixel coords:
+      // tile spans (tileFtW*12) world-inches = (tileFtW*12*S.ppi)
+      // world-pixels of width. Convert to worldCanvas pixels via the
+      // pxPerWorldPx_W factor.
+      const tileWorldPxW=tileFtW*12*S.ppi;
+      const tileWorldPxH=tileFtH*12*S.ppi;
+      const srcX=Math.round(c*tileWorldPxW*pxPerWorldPx_W);
+      const srcY=Math.round(r*tileWorldPxH*pxPerWorldPx_H);
+      const srcW=Math.min(worldCanvas.width-srcX,Math.round(tileWorldPxW*pxPerWorldPx_W));
+      const srcH=Math.min(worldCanvas.height-srcY,Math.round(tileWorldPxH*pxPerWorldPx_H));
+      // Dest rect (1 paper inch = 72 pt = scale * 12 world inches)
+      // The tile should fill (printW_pt × srcW/srcMax) … simpler: fit srcW×srcH to printable area proportionally.
+      const tileScale=Math.min(printW_pt/srcW,printH_pt/srcH)*KP_RES;
+      const dW=srcW*tileScale,dH=srcH*tileScale;
+      const dX=(kpW-dW)/2,dY=(kpH-dH)/2;
+      tctx.drawImage(worldCanvas,srcX,srcY,srcW,srcH,dX,dY,dW,dH);
+      // Registration marks in corners
+      tctx.strokeStyle='#2a2f36';tctx.lineWidth=1.2*KP_RES;
+      const reg=10*KP_RES;
+      const corners=[[dX,dY],[dX+dW,dY],[dX,dY+dH],[dX+dW,dY+dH]];
+      corners.forEach(([x,y])=>{
+        tctx.beginPath();tctx.moveTo(x-reg,y);tctx.lineTo(x+reg,y);
+        tctx.moveTo(x,y-reg);tctx.lineTo(x,y+reg);tctx.stroke();
+      });
+      // Tile label
+      const label=String.fromCharCode(65+r)+(c+1);
+      tctx.fillStyle='#ff6a18';tctx.font=`bold ${24*KP_RES}px Arial`;tctx.textAlign='right';tctx.textBaseline='bottom';
+      tctx.fillText('TILE '+label,kpW-margin_pt*KP_RES,kpH-margin_pt*KP_RES);
+      // Project meta in top-left
+      tctx.fillStyle='#6b6f78';tctx.font=`${10*KP_RES}px Arial`;tctx.textAlign='left';tctx.textBaseline='top';
+      tctx.fillText(`${S.proj.name||'FlowForge'} · ${label} of ${String.fromCharCode(65+rows-1)}${cols}`,margin_pt*KP_RES,margin_pt*KP_RES*0.4);
+      pages.push(tile);
+    }
+  }
+  return pages;
+}
+
 // ── PDF COVER PAGE (Phase 12) ─────────────────────────────────────────
 function computeProjectStats(){
   const objs=S.objects.filter(o=>o.type==='conveyor');
@@ -7477,6 +7649,10 @@ function bindAll(){
       document.getElementById('exportPdfOptions').style.display=document.querySelector('input[name="expFmt"]:checked').value==='pdf'?'block':'none';
     });
   });
+  // Phase 14 — show/hide tile sub-options on checkbox change.
+  document.getElementById('expTileMode').addEventListener('change',e=>{
+    document.getElementById('expTileOptions').style.display=e.target.checked?'block':'none';
+  });
   document.getElementById('exportNotesYesBtn').addEventListener('click',()=>{
     // Keep pending export context so closing Notes returns to the export confirmation.
     document.getElementById('exportNotesModal').classList.add('hidden');
@@ -8256,7 +8432,13 @@ function exportModalContinue(){
   const fmt=document.querySelector('input[name="expFmt"]:checked').value;
   const area=document.querySelector('input[name="expArea"]:checked').value;
   const includeCover=fmt==='pdf'&&document.getElementById('expIncludeCover').checked;
-  _pendingExport={fmt,area,includeCover};
+  const tileMode=fmt==='pdf'&&document.getElementById('expTileMode').checked;
+  const tileOpts=tileMode?{
+    pageSize:document.getElementById('expPageSize').value,
+    orient:document.getElementById('expOrient').value,
+    scaleStr:document.getElementById('expScale').value,
+  }:null;
+  _pendingExport={fmt,area,includeCover,tileMode,tileOpts};
   document.getElementById('exportModal').classList.add('hidden');
   updateExportNotesSummary();
   document.getElementById('exportNotesModal').classList.remove('hidden');
@@ -8326,10 +8508,18 @@ function finalizePreviewExport(){
         showToast('PNG exported ('+area+')');
       }else{
         // Phase 12 — include cover page first when enabled.
+        // Phase 14 — when tile mode is on, generate a key plan + N tile pages.
         const includeCover=_pendingExport?.includeCover;
-        const pages=includeCover?[buildCoverCanvas(canvas),canvas]:[canvas];
+        const tileMode=_pendingExport?.tileMode;
+        let pages;
+        if(tileMode){
+          const tilePages=buildTilingPages(_pendingExport.tileOpts);
+          pages=includeCover?[buildCoverCanvas(canvas),...tilePages]:tilePages;
+        }else{
+          pages=includeCover?[buildCoverCanvas(canvas),canvas]:[canvas];
+        }
         const blob=buildPdfBlobFromCanvases(pages);
-        dl(blob,name);showToast('PDF exported'+(includeCover?' with cover':'')+' ('+area+')');
+        dl(blob,name);showToast('PDF exported'+(includeCover?' with cover':'')+(tileMode?' (tiled, '+(pages.length-(includeCover?1:0))+' pages)':' ('+area+')'));
       }
       _pendingExportPreview=null;
       _pendingExport=null;
