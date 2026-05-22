@@ -543,6 +543,35 @@ body{font:13px/1.45 'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);c
 .tutorial-actions button:disabled{opacity:.45;cursor:not-allowed;}
 .tutorial-actions .btn-primary{background:var(--blue);border-color:var(--blue);color:#fff;}
 
+/* ── LAYERS PANEL (Phase 9) ── */
+.layer-row{
+  display:grid;grid-template-columns:18px 22px 1fr auto;align-items:center;gap:8px;
+  padding:6px 8px;border-radius:5px;cursor:pointer;
+  border:1px solid transparent;background:transparent;
+  transition:background .12s,border-color .12s;
+  user-select:none;
+}
+.layer-row:hover{background:var(--blue-light);}
+.layer-row.selected{background:var(--blue-light);border-color:var(--forge-orange);}
+.layer-row.dragging{opacity:.55;}
+.layer-row.drop-above{box-shadow:inset 0 2px 0 var(--forge-orange);}
+.layer-row.drop-below{box-shadow:inset 0 -2px 0 var(--forge-orange);}
+.layer-row.hidden-item .layer-name{color:var(--muted);text-decoration:line-through;}
+.layer-handle{
+  cursor:grab;color:var(--muted);font-size:14px;line-height:1;text-align:center;
+  font-weight:700;letter-spacing:-1px;
+}
+.layer-handle:active{cursor:grabbing;}
+.layer-eye{
+  background:none;border:1px solid var(--border);border-radius:4px;
+  width:22px;height:22px;font-size:12px;cursor:pointer;color:var(--text);
+  display:flex;align-items:center;justify-content:center;padding:0;
+}
+.layer-eye:hover{background:var(--forge-cream2);border-color:var(--forge-orange);}
+.layer-eye.off{opacity:.4;}
+.layer-name{font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.layer-meta{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
+
 /* ── PRESENTATION MODE (Phase 6) ──
    Chrome-hide for projector demos. Topbar, side panels, canvas
    toolbar, and zoom bar collapse so the cream workspace fills the
@@ -683,6 +712,7 @@ body.presentation-mode #presentationPill{display:block;}
       <div id="notesTextLayer"></div>
       <div class="canvas-toolbar">
         <button class="ctb-btn" id="snapBtn" title="Snap to grid">⊞ Snap</button>
+        <button class="ctb-btn" id="layersBtn" title="Layers panel — list every object, reorder z-stack, toggle visibility">≣ Layers</button>
         <div class="ctb-sep"></div>
         <span style="font-size:11px;color:var(--muted);font-weight:600;padding:0 2px">Scroll to zoom · Middle-click drag to pan</span>
       </div>
@@ -1040,6 +1070,25 @@ body.presentation-mode #presentationPill{display:block;}
     </div>
     <div class="modal-footer">
       <button class="btn-primary" id="notesDoneBtn">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="layersModal">
+  <div class="modal" style="width:480px;max-height:82vh;">
+    <div class="modal-hdr">
+      <div class="modal-hdr-title">Layers</div>
+      <button class="modal-close" id="layersModalClose">×</button>
+    </div>
+    <div class="modal-body" style="padding:10px 14px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;color:var(--muted);">
+        <span style="flex:1;">Top of list = top of z-stack. Drag rows to reorder · click row to select · eye toggles visibility.</span>
+        <span id="layersCount" style="font-weight:700;color:var(--text);"></span>
+      </div>
+      <div id="layersList" style="max-height:60vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px;background:#fafbfc;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" id="layersDoneBtn">Done</button>
     </div>
   </div>
 </div>
@@ -1710,7 +1759,7 @@ function layerRank(obj){
   return 30;
 }
 function getRenderableObjects(){
-  return [...S.objects].sort((a,b)=>{
+  return [...S.objects].filter(o=>!o.hidden).sort((a,b)=>{
     const z=layerRank(a)-layerRank(b);
     return z||((Number(a?.stackOrder)||0)-(Number(b?.stackOrder)||0))||(a.id||'').localeCompare(b.id||'');
   });
@@ -5491,6 +5540,95 @@ function buildDemoPayload(key){
     tagsHidden:false,
   };
 }
+// ── LAYERS PANEL (Phase 9) ────────────────────────────────────────────
+// Flat scrollable list of every object in the project, sorted top-of-
+// z-stack to bottom. Click a row to select that object on canvas. Drag
+// a row to reorder stackOrder. Eye toggles obj.hidden (filtered out of
+// renders and exports but kept in the project file).
+function getLayerOrderedObjects(){
+  // Same comparator as getRenderableObjects, but includes hidden items
+  // (the panel must show hidden items so the eye can re-enable them).
+  return [...S.objects].sort((a,b)=>{
+    const z=layerRank(a)-layerRank(b);
+    return z||((Number(a?.stackOrder)||0)-(Number(b?.stackOrder)||0))||(a.id||'').localeCompare(b.id||'');
+  });
+}
+function openLayersModal(){
+  document.getElementById('layersModal').classList.remove('hidden');
+  renderLayersList();
+}
+function closeLayersModal(){
+  document.getElementById('layersModal').classList.add('hidden');
+}
+function toggleLayerHidden(id){
+  const o=S.objects.find(x=>x.id===id);if(!o)return;
+  o.hidden=!o.hidden;
+  pushHistory();render();renderLayersList();
+}
+function renderLayersList(){
+  const list=document.getElementById('layersList');
+  if(!list)return;
+  const objs=getLayerOrderedObjects().reverse(); // top of z-stack first
+  document.getElementById('layersCount').textContent=`${objs.length} object${objs.length===1?'':'s'}`;
+  list.innerHTML='';
+  objs.forEach(o=>{
+    const row=document.createElement('div');
+    row.className='layer-row'+(S.selIds.has(o.id)||S.selId===o.id?' selected':'')+(o.hidden?' hidden-item':'');
+    row.dataset.id=o.id;
+    row.draggable=true;
+    const fam=o.family||o.type||'object';
+    const label=o.name||fam;
+    row.innerHTML=`
+      <div class="layer-handle" aria-hidden="true">≡</div>
+      <button class="layer-eye${o.hidden?' off':''}" title="${o.hidden?'Show':'Hide'} on canvas and exports" aria-label="Toggle visibility">${o.hidden?'◌':'●'}</button>
+      <div>
+        <div class="layer-name">${escapeHtml(label)}${o.tag?` <span style="color:var(--forge-orange);font-weight:700;">#${escapeHtml(o.tag)}</span>`:''}</div>
+        <div class="layer-meta">${escapeHtml(fam)}${o.groupId?` · group ${o.groupId.slice(4)}`:''}</div>
+      </div>
+      <div style="width:14px;height:14px;border-radius:3px;background:${FS(o.family)||'#888'};border:1px solid rgba(0,0,0,.18);" aria-hidden="true"></div>
+    `;
+    row.querySelector('.layer-eye').addEventListener('click',ev=>{ev.stopPropagation();toggleLayerHidden(o.id);});
+    row.addEventListener('click',()=>{sel(o.id);renderLayersList();});
+    row.addEventListener('dragstart',ev=>{ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',o.id);row.classList.add('dragging');});
+    row.addEventListener('dragend',()=>{row.classList.remove('dragging');list.querySelectorAll('.layer-row').forEach(r=>r.classList.remove('drop-above','drop-below'));});
+    row.addEventListener('dragover',ev=>{
+      ev.preventDefault();ev.dataTransfer.dropEffect='move';
+      const rect=row.getBoundingClientRect();
+      const above=(ev.clientY-rect.top)<rect.height/2;
+      list.querySelectorAll('.layer-row').forEach(r=>r.classList.remove('drop-above','drop-below'));
+      row.classList.add(above?'drop-above':'drop-below');
+    });
+    row.addEventListener('drop',ev=>{
+      ev.preventDefault();
+      const srcId=ev.dataTransfer.getData('text/plain');
+      if(!srcId||srcId===o.id)return;
+      const rect=row.getBoundingClientRect();
+      const above=(ev.clientY-rect.top)<rect.height/2;
+      reorderLayer(srcId,o.id,above?'above':'below');
+    });
+    list.appendChild(row);
+  });
+}
+function reorderLayer(srcId,tgtId,position){
+  const src=S.objects.find(o=>o.id===srcId);
+  const tgt=S.objects.find(o=>o.id===tgtId);
+  if(!src||!tgt)return;
+  // Constrain to a single layerRank tier — moving across tiers (e.g.
+  // T-Car car vs rail) is reserved to the right-click "Move Up/Down
+  // in Stack" path. Inside the layers panel, drops are clamped.
+  if(layerRank(src)!==layerRank(tgt)){showToast('Layer types do not mix — use right-click Move Up/Down for cross-tier reorder');return;}
+  // Topmost-first display: dropping "above" tgt means a higher
+  // stackOrder; "below" means a lower one.
+  const tier=S.objects.filter(o=>layerRank(o)===layerRank(src)).sort((a,b)=>(Number(a.stackOrder)||0)-(Number(b.stackOrder)||0));
+  const without=tier.filter(o=>o.id!==srcId);
+  const tgtIdx=without.findIndex(o=>o.id===tgtId);
+  const insertIdx=position==='above'?tgtIdx+1:tgtIdx; // higher stackOrder = "above" in z; topmost-first list reverses, so "above" the row = higher stackOrder
+  without.splice(insertIdx,0,src);
+  without.forEach((o,idx)=>{o.stackOrder=idx;});
+  pushHistory();render();renderLayersList();
+}
+function escapeHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
 // ── PRESENTATION MODE (Phase 6) ───────────────────────────────────────
 function togglePresentationMode(force){
   const want=typeof force==='boolean'?force:!S.presentationMode;
@@ -6087,6 +6225,10 @@ function bindAll(){
   document.getElementById('presentationBtn').addEventListener('click',()=>togglePresentationMode(true));
   document.getElementById('presentationPill').addEventListener('click',()=>togglePresentationMode(false));
   installPresentationModalAutoExit();
+  // Phase 9 — Layers panel wiring
+  document.getElementById('layersBtn').addEventListener('click',openLayersModal);
+  document.getElementById('layersModalClose').addEventListener('click',closeLayersModal);
+  document.getElementById('layersDoneBtn').addEventListener('click',closeLayersModal);
   document.getElementById('newBtn').addEventListener('click',()=>{
     if(!confirm('Start a new layout? Unsaved changes will be lost.'))return;
     S.objects=[];S.selId=null;S.selIds.clear();S.tagMove=null;S.tagAnchorMove=null;S.history=[];S.historyIdx=-1;
