@@ -1,8 +1,8 @@
 # FlowForge Phase State
 
-## Current Phase: 0
+## Current Phase: 1
 ## Status: In Progress
-## Last Updated: 2026-05-23
+## Last Updated: 2026-05-26
 
 ---
 
@@ -39,16 +39,18 @@
 
 ---
 
-## Phase 1 — Auth + Cloud Save (not started)
-- [ ] Install Vite + Supabase deps
-- [ ] Write `src/index.html` shell
-- [ ] Supabase client + login + session modules
-- [ ] `src/main.js` boot flow
-- [ ] `cloud-save.js` overrides for `window.saveProject` / `window.loadProject`
-- [ ] `migration.js` for legacy `.flowforge` files
-- [ ] `001_initial_schema.sql` applied to Supabase
-- [ ] End-to-end test: signup → save → reload → load
-- [ ] Deployed to Vercel preview
+## Phase 1 — Auth + Cloud Save
+- [x] Install Vite + Supabase deps (`npm install` → vite 5.4.21, @supabase/supabase-js 2.106.2)
+- [x] Write `src/index.html` shell (auth gate + project bar + app host iframe)
+- [x] Supabase client + login + session modules (`src/auth/`)
+- [x] `src/main.js` boot flow (session check → login or app → iframe load → patch globals)
+- [x] `cloud-save.js` overrides for `window.saveProject` / `window.loadProject`
+- [x] `migration.js` for legacy `.flowforge` / `.omninapkin` localStorage
+- [x] `001_initial_schema.sql` with RLS policies (ready for Supabase SQL editor)
+- [x] Vite build passes (51 modules, <1s)
+- [ ] `001_initial_schema.sql` applied to Supabase — **requires Supabase project credentials**
+- [ ] End-to-end test: signup → save → reload → load — **requires `.env.local` with real keys**
+- [ ] Deployed to Vercel preview — **requires Vercel project linked**
 
 ## Phase 2 — Multi-Tenant Catalogs (not started)
 ## Phase 3 — Billing / Stripe (not started)
@@ -67,3 +69,5 @@
 - 2026-05-23: Scaffold the SaaS structure inside the existing FlowForge repo (not a parallel directory). Translate Windows paths to relative repo paths.
 - 2026-05-23: Preserve the legacy single-file-tool codebase guide at `public/CLAUDE.md`; root `CLAUDE.md` becomes the SaaS router per §3.
 - 2026-05-23: `FlowForge.html` moved to `public/flowforge.html` (lowercased). Original capitalized file no longer exists at root.
+- 2026-05-26: Phase 1 code written. Boot flow uses an iframe for flowforge.html (avoids global collisions). vite.config trimmed to app-only entry; admin/marketing entries re-added in their phases.
+- 2026-05-26: RLS policies included inline in 001_initial_schema.sql (not a separate migration) since Phase 1's own projects table needs them immediately.

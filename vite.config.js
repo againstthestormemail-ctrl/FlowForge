@@ -9,9 +9,9 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        app: resolve(__dirname, 'src/index.html'),
-        admin: resolve(__dirname, 'admin/index.html'),
-        marketing: resolve(__dirname, 'marketing/index.html')
+        app: resolve(__dirname, 'src/index.html')
+        // admin: resolve(__dirname, 'admin/index.html'),      // Phase 4
+        // marketing: resolve(__dirname, 'marketing/index.html') // Phase 5
       }
     }
   },
