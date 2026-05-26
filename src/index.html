@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlowForge</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1e24; color: #e8e8e8; }
+    #auth-gate {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 2rem;
+    }
+    #auth-gate.hidden { display: none; }
+    #app-host { display: none; width: 100%; height: 100vh; }
+    #app-host.active { display: block; }
+    #app-host iframe { width: 100%; height: 100%; border: none; }
+
+    .auth-card {
+      background: #2a2f36; border-radius: 12px; padding: 2.5rem;
+      max-width: 400px; width: 100%; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .auth-card h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .auth-card h1 .brand-flow { color: #e8e8e8; }
+    .auth-card h1 .brand-forge { color: #ff6a18; }
+    .auth-card p.subtitle { color: #999; font-size: 0.875rem; margin-bottom: 1.5rem; }
+    .auth-card label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 0.25rem; margin-top: 1rem; }
+    .auth-card input[type="email"],
+    .auth-card input[type="password"] {
+      width: 100%; padding: 0.6rem 0.75rem; border-radius: 6px;
+      border: 1px solid #444; background: #1a1e24; color: #e8e8e8;
+      font-size: 0.9rem;
+    }
+    .auth-card input:focus { outline: none; border-color: #ff6a18; }
+    .auth-card button {
+      width: 100%; padding: 0.7rem; margin-top: 1.25rem; border: none;
+      border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+      transition: background 0.2s;
+    }
+    .auth-card .btn-primary { background: #ff6a18; color: #fff; }
+    .auth-card .btn-primary:hover { background: #e85d10; }
+    .auth-card .btn-secondary { background: transparent; color: #ff6a18; border: 1px solid #ff6a18; margin-top: 0.5rem; }
+    .auth-card .btn-secondary:hover { background: rgba(255,106,24,0.1); }
+    .auth-card .toggle-link { text-align: center; margin-top: 1rem; font-size: 0.8rem; color: #888; }
+    .auth-card .toggle-link a { color: #ff6a18; cursor: pointer; text-decoration: none; }
+    .auth-card .error-msg { color: #ff4444; font-size: 0.8rem; margin-top: 0.75rem; min-height: 1.2em; }
+    .auth-card .success-msg { color: #44cc88; font-size: 0.8rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+    .project-bar {
+      position: fixed; top: 0; left: 0; right: 0; height: 36px;
+      background: #2a2f36; border-bottom: 1px solid #444;
+      display: flex; align-items: center; padding: 0 1rem;
+      font-size: 0.8rem; z-index: 99999; gap: 1rem;
+    }
+    .project-bar.hidden { display: none; }
+    .project-bar .brand { color: #ff6a18; font-weight: 700; }
+    .project-bar select { background: #1a1e24; color: #e8e8e8; border: 1px solid #444; border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; }
+    .project-bar button { background: #ff6a18; color: #fff; border: none; border-radius: 4px; padding: 3px 10px; font-size: 0.75rem; cursor: pointer; }
+    .project-bar .spacer { flex: 1; }
+    .project-bar .user-info { color: #888; font-size: 0.75rem; }
+    .project-bar .sign-out { background: transparent; color: #888; border: 1px solid #555; }
+  </style>
+</head>
+<body>
+  <div id="auth-gate"></div>
+  <div id="project-bar" class="project-bar hidden">
+    <span class="brand">FlowForge</span>
+    <select id="project-select"><option value="">— Select project —</option></select>
+    <button id="btn-new-project">+ New</button>
+    <button id="btn-save-project">Save</button>
+    <span class="spacer"></span>
+    <span class="user-info" id="user-info"></span>
+    <button class="sign-out" id="btn-sign-out">Sign Out</button>
+  </div>
+  <div id="app-host"></div>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
